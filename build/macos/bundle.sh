@@ -54,11 +54,12 @@ if [ -n "${MACOS_CERTIFICATE:-}" ] && [ -n "${MACOS_CERTIFICATE_PASSWORD:-}" ]; 
   [ -n "$identity" ] || { echo "no Developer ID Application identity in MACOS_CERTIFICATE" >&2; exit 1; }
 
   ent="$here/entitlements.plist"
-  # inside-out: every Mach-O in the bundle, then the executable, then the app
-  find "$app/Contents/MacOS" -type f ! -name OgsTsMonitor | while read -r f; do
-    if file "$f" | grep -q 'Mach-O'; then
-      codesign --force --timestamp --options runtime --entitlements "$ent" --sign "$identity" "$f"
-    fi
+  # inside-out: every file in Contents/MacOS, then the executable, then the
+  # app. Not just the Mach-O: codesign treats everything beside the
+  # executable as a subcomponent, so the managed .dll and .json files need
+  # signatures too (stored as extended attributes; ditto keeps them).
+  find "$app/Contents/MacOS" -type f ! -name OgsTsMonitor -print0 | while IFS= read -r -d '' f; do
+    codesign --force --timestamp --options runtime --entitlements "$ent" --sign "$identity" "$f"
   done
   codesign --force --timestamp --options runtime --entitlements "$ent" --sign "$identity" "$app/Contents/MacOS/OgsTsMonitor"
   codesign --force --timestamp --options runtime --entitlements "$ent" --sign "$identity" "$app"
