@@ -1,5 +1,17 @@
 # OGS-TS Monitor
 
+> [!IMPORTANT]
+> **In active development.** Tested against the standard's conformance
+> corpus and its own demo sender; first releases. Please report what you
+> find on [Discord](https://discord.gg/tseF4Q6U99), especially a
+> conformance finding you think is wrong: if the monitor misreads the
+> standard, it misleads everyone building a sender.
+>
+> Development is funded by
+> [sponsorship](https://github.com/sponsors/BrianGilbert), which moves this
+> and the rest of the [OGS](https://github.com/Open-Game-Standards)
+> work forward.
+
 A cross-platform desktop receiver for the
 [OGS Telemetry Standard (OGS-TS)](https://github.com/Open-Game-Standards/OGS-Telemetry-Standard):
 it joins the multicast group, shows every sender on your network, and checks
