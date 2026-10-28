@@ -48,6 +48,8 @@ public sealed class OrientationView : Control
     static OrientationView()
     {
         AffectsRender<OrientationView>(OrientationProperty, IsLiveProperty, ChaseProperty);
+        // the ground grid extends past the box; keep it inside the control
+        ClipToBoundsProperty.OverrideDefaultValue<OrientationView>(true);
     }
 
     public Quaternion Orientation { get => GetValue(OrientationProperty); set => SetValue(OrientationProperty, value); }
