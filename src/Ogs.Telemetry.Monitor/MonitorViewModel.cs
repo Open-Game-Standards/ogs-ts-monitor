@@ -5,6 +5,10 @@ using Ogs.Telemetry.Monitor.Controls;
 
 namespace Ogs.Telemetry.Monitor;
 
+/// <summary>Attitude drawing: body axes from behind (heading removed), body
+/// axes against fixed world axes, or an aircraft horizon.</summary>
+public enum AttitudeMode { Chase, World, Horizon }
+
 /// <summary>
 /// Presents a <see cref="StreamTracker"/> for <c>MonitorView</c>. The host
 /// owns the tracker (and whatever feeds it); the view calls
@@ -102,19 +106,36 @@ public sealed class MonitorViewModel : Observable
 
     public double HistorySeconds => StreamTracker.HistoryWindow.TotalSeconds;
 
-    bool _useHorizon;
-    /// <summary>Attitude as a horizon dial instead of body axes. Defaults on
-    /// for aircraft when an object is selected; the user can flip it.</summary>
-    public bool UseHorizon
+    AttitudeMode _mode = AttitudeMode.Chase;
+    /// <summary>How attitude is drawn. Defaults to the horizon for aircraft
+    /// and chase for everything else when an object is selected.</summary>
+    public AttitudeMode Mode
     {
-        get => _useHorizon;
-        set { if (Set(ref _useHorizon, value)) Raise(nameof(UseAxes)); }
+        get => _mode;
+        set
+        {
+            if (!Set(ref _mode, value)) return;
+            Raise(nameof(IsChaseMode)); Raise(nameof(IsWorldMode)); Raise(nameof(IsHorizonMode));
+            Raise(nameof(UseAxes)); Raise(nameof(UseHorizon)); Raise(nameof(Chase));
+        }
     }
-    public bool UseAxes => !UseHorizon;
 
-    bool _chase = true;
-    /// <summary>Body-axes view with heading removed (seen from behind) rather than world-fixed.</summary>
-    public bool Chase { get => _chase; set => Set(ref _chase, value); }
+    // One per mode button: checking one selects it; unchecking the selected
+    // one is refused (the button re-reads true), so exactly one stays on.
+    public bool IsChaseMode { get => Mode == AttitudeMode.Chase; set => Select(AttitudeMode.Chase, value, nameof(IsChaseMode)); }
+    public bool IsWorldMode { get => Mode == AttitudeMode.World; set => Select(AttitudeMode.World, value, nameof(IsWorldMode)); }
+    public bool IsHorizonMode { get => Mode == AttitudeMode.Horizon; set => Select(AttitudeMode.Horizon, value, nameof(IsHorizonMode)); }
+
+    void Select(AttitudeMode mode, bool on, string property)
+    {
+        if (on) Mode = mode;
+        else if (Mode == mode) Raise(property);
+    }
+
+    public bool UseHorizon => Mode == AttitudeMode.Horizon;
+    public bool UseAxes => Mode != AttitudeMode.Horizon;
+    /// <summary>Body axes seen from behind with heading removed, rather than world-fixed.</summary>
+    public bool Chase => Mode == AttitudeMode.Chase;
 
     bool _nearVertical;
     /// <summary>Nose within 5° of straight up or down: yaw and roll angles are ill-defined.</summary>
@@ -276,7 +297,7 @@ public sealed class MonitorViewModel : Observable
         if (o.Key != _viewKey)
         {
             _viewKey = o.Key;
-            UseHorizon = o.Type == "aircraft";
+            Mode = o.Type == "aircraft" ? AttitudeMode.Horizon : AttitudeMode.Chase;
         }
         RefreshMotionViews(o);
         if (o.Dynamics is { } d)

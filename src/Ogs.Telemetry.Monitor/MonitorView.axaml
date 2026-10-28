@@ -155,10 +155,12 @@
               <TextBlock Text="{Binding ObjectInfo}" Classes="muted" FontSize="12" TextWrapping="Wrap"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
-              <ToggleButton Content="Chase" IsChecked="{Binding Chase}" IsEnabled="{Binding UseAxes}"
-                            ToolTip.Tip="Body-axes view: on = seen from behind with heading removed, so pitch and roll read the same whichever way the object faces; off = fixed world view (for spacecraft and free 6-DoF motion). Not used by the horizon."/>
-              <ToggleButton Content="Horizon" IsChecked="{Binding UseHorizon}"
-                            ToolTip.Tip="Show attitude as an aircraft horizon instead of body axes (on by default for aircraft)"/>
+              <ToggleButton Content="Chase" IsChecked="{Binding IsChaseMode}"
+                            ToolTip.Tip="Body axes seen from behind, heading removed: pitch and roll read the same whichever way the object faces (default for vehicles)"/>
+              <ToggleButton Content="World" IsChecked="{Binding IsWorldMode}"
+                            ToolTip.Tip="Body axes against fixed world axes: full 6-DoF orientation, for spacecraft and free motion"/>
+              <ToggleButton Content="Horizon" IsChecked="{Binding IsHorizonMode}"
+                            ToolTip.Tip="Aircraft attitude indicator (default for aircraft)"/>
             </StackPanel>
           </Grid>
 

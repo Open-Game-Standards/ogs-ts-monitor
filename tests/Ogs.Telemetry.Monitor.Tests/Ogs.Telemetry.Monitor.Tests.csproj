@@ -9,6 +9,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ogs.Telemetry.Monitor.Core\Ogs.Telemetry.Monitor.Core.csproj" />
+    <ProjectReference Include="..\..\src\Ogs.Telemetry.Monitor\Ogs.Telemetry.Monitor.csproj" />
     <!-- the sender core's writers build the test frames, incl. non-conforming ones -->
     <ProjectReference Include="$(MSBuildThisFileDirectory)../../../ogs-ts-dotnet/src/Ogs.Telemetry/Ogs.Telemetry.csproj" />
   </ItemGroup>
