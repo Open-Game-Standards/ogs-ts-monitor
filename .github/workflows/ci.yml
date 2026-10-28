@@ -1,9 +1,19 @@
 name: ci
-# Builds and tests on Windows, Linux and macOS. ogs-ts-dotnet (the decoder)
-# and OGS-Telemetry-Standard (the conformance corpus the tests decode) are
-# checked out as siblings: the same workspace layout the project references
-# assume. A v* tag publishes self-contained builds for each platform as a
-# GitHub release.
+# Builds, tests and packages the monitor on each platform's own runner.
+# ogs-ts-dotnet (the decoder) and OGS-Telemetry-Standard (the conformance
+# corpus the tests decode) are checked out as siblings: the workspace layout
+# the project references assume.
+#
+# Every run uploads the apps as artifacts:
+#   win-x64    single-file .exe (zip)
+#   linux-x64  single-file binary (tar.gz, keeps the executable bit)
+#   osx-arm64, osx-x64  "OGS-TS Monitor.app" (zip), signed with a Developer ID
+#              and notarized when the secrets below are set (build/macos/bundle.sh)
+# A v* tag publishes them as a GitHub release.
+#
+# macOS signing secrets (the app is built unsigned without them):
+#   MACOS_CERTIFICATE (base64 .p12), MACOS_CERTIFICATE_PASSWORD
+#   APPLE_API_KEY (base64 .p8), APPLE_API_KEY_ID, APPLE_API_ISSUER_ID — notarization
 on:
   push:
     branches: [main]
@@ -15,14 +25,22 @@ permissions:
 
 env:
   ORG: Open-Game-Standards
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
-  build-test:
+  build:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+          - { os: macos-latest, rid: osx-x64 }
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
@@ -38,36 +56,67 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+
       - name: Build
         run: dotnet build ogs-ts-monitor/OgsTsMonitor.slnx --nologo
       - name: Test (incl. the standard's conformance corpus)
         run: dotnet test ogs-ts-monitor/tests/Ogs.Telemetry.Monitor.Tests --nologo --no-build
 
+      - name: Version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Publish (Windows, Linux)
+        if: runner.os != 'macOS'
+        run: |
+          dotnet publish ogs-ts-monitor/src/OgsTsMonitor -c Release -r ${{ matrix.rid }} --self-contained \
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:Version="${VERSION%%-*}" \
+            -o out --nologo
+          cp ogs-ts-monitor/README.md ogs-ts-monitor/LICENSE out/
+          mkdir -p dist
+          name="OgsTsMonitor-${VERSION}-${{ matrix.rid }}"
+          if [ "$RUNNER_OS" = Windows ]; then
+            pwsh -NoProfile -Command "Compress-Archive -Path out/* -DestinationPath dist/$name.zip"
+          else
+            chmod +x out/OgsTsMonitor
+            tar -czf "dist/$name.tar.gz" -C out .
+          fi
+
+      - name: Publish and bundle (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          # notarize releases; main-branch builds are signed but not submitted
+          NOTARIZE: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
+        run: |
+          dotnet publish ogs-ts-monitor/src/OgsTsMonitor -c Release -r ${{ matrix.rid }} --self-contained \
+            -p:DebugType=none -p:UseAppHost=true -p:Version="${VERSION%%-*}" -o out --nologo
+          mkdir -p dist
+          bash ogs-ts-monitor/build/macos/bundle.sh out "${VERSION%%-*}" "dist/OgsTsMonitor-${VERSION}-${{ matrix.rid }}.zip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: OgsTsMonitor-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-test
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
-          path: ogs-ts-monitor
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ env.ORG }}/ogs-ts-dotnet
-          path: ogs-ts-dotnet
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: "10.0.x"
-      - name: Publish self-contained builds
-        run: |
-          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
-            dotnet publish ogs-ts-monitor/src/OgsTsMonitor -c Release -r "$rid" --self-contained \
-              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-              -p:EnableCompressionInSingleFile=true -p:DebugType=none -o "out/$rid" --nologo
-            (cd "out/$rid" && zip -qr "../../OgsTsMonitor-${GITHUB_REF_NAME}-$rid.zip" .)
-          done
+          path: dist
+          merge-multiple: true
       - uses: softprops/action-gh-release@v3
         with:
-          files: OgsTsMonitor-*.zip
+          files: dist/*

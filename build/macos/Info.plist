@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>OGS-TS Monitor</string>
+  <key>CFBundleDisplayName</key>
+  <string>OGS-TS Monitor</string>
+  <key>CFBundleIdentifier</key>
+  <string>org.opengamestandards.ogs-ts-monitor</string>
+  <key>CFBundleExecutable</key>
+  <string>OgsTsMonitor</string>
+  <key>CFBundleIconFile</key>
+  <string>OgsTsMonitor.icns</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleVersion</key>
+  <string>__VERSION__</string>
+  <key>CFBundleShortVersionString</key>
+  <string>__VERSION__</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>12.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright (c) 2026 Open Game Standards. MIT licensed.</string>
+  <!-- macOS 15+ asks before an app can use the local network; OGS-TS is
+       UDP multicast on the LAN, so the monitor needs this to receive. -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>OGS-TS Monitor receives game telemetry broadcast on your local network.</string>
+</dict>
+</plist>

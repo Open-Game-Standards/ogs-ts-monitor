@@ -64,10 +64,19 @@ there, use `--demo-lan` on a network with no rig attached.
 
 ## Running
 
-Download a build for Windows, Linux or macOS from
+Download a build from
 [Releases](https://github.com/Open-Game-Standards/ogs-ts-monitor/releases).
-They are self-contained single files; the macOS builds are not signed, so
-Gatekeeper will ask you to confirm the first launch.
+Nothing to install alongside: each is self-contained.
+
+| Platform | Download | Run |
+| --- | --- | --- |
+| Windows (x64) | `OgsTsMonitor-<version>-win-x64.zip` | unzip, run `OgsTsMonitor.exe` |
+| Linux (x64) | `OgsTsMonitor-<version>-linux-x64.tar.gz` | `tar -xzf …` then `./OgsTsMonitor` |
+| macOS (Apple silicon / Intel) | `OgsTsMonitor-<version>-osx-arm64.zip` / `-osx-x64.zip` | unzip, move **OGS-TS Monitor** to Applications |
+
+The macOS app is signed with a Developer ID and notarized by Apple. On
+macOS 15 and later it asks for **Local Network** access the first time:
+allow it, since OGS-TS arrives as multicast on your LAN.
 
 ```
 OgsTsMonitor [--group 239.255.17.17] [--port 40123] [--demo | --demo-lan]
@@ -96,8 +105,11 @@ dotnet test tests/Ogs.Telemetry.Monitor.Tests
 dotnet run --project src/OgsTsMonitor -- --demo
 ```
 
-Requires the .NET 10 SDK. CI builds and tests on Windows, Linux and macOS;
-`v*` tags publish the release builds.
+Requires the .NET 10 SDK. CI builds, tests and packages on Windows, Linux
+and macOS on every push (the apps are downloadable from each run's
+artifacts), and `v*` tags publish them as a release. The macOS app is
+assembled, signed and notarized by `build/macos/bundle.sh`; without the
+signing secrets (listed in `.github/workflows/ci.yml`) it is built unsigned.
 
 ## Layout and reuse
 
