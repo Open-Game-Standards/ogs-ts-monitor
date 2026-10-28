@@ -208,9 +208,15 @@ public sealed class MonitorViewModel : Observable
             item.IsLive = o.MotionRateHz > 0;
             item.Detail = $"{sv.GameName} · {Label(o)}" + (o.MotionRateHz > 0 ? Inv($" · {o.MotionRateHz:0} Hz") : "");
         }
-        if (_followPrimary || _selected is null)
+        // Follow the sender that's streaming. Sessions order by latest
+        // discovery, and two senders re-announce in turn, so "newest" alone
+        // flips between them: stay on the current object while its motion
+        // is live, else take the newest session that has live motion.
+        var current = all.FirstOrDefault(x => x.o.Key == _selected?.Key).o;
+        if ((_followPrimary || _selected is null) && current is not { MotionRateHz: > 0 })
         {
-            var newest = s.Sessions.FirstOrDefault();
+            var newest = s.Sessions.FirstOrDefault(sv => sv.Objects.Any(o => o.MotionRateHz > 0))
+                         ?? s.Sessions.FirstOrDefault();
             var primary = newest?.Objects.FirstOrDefault(o => o.Primary) ?? newest?.Objects.FirstOrDefault();
             var target = primary is null ? null : Objects.FirstOrDefault(i => i.Key == primary.Key);
             if (target != _selected)
