@@ -1,0 +1,73 @@
+name: ci
+# Builds and tests on Windows, Linux and macOS. ogs-ts-dotnet (the decoder)
+# and OGS-Telemetry-Standard (the conformance corpus the tests decode) are
+# checked out as siblings: the same workspace layout the project references
+# assume. A v* tag publishes self-contained builds for each platform as a
+# GitHub release.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  ORG: Open-Game-Standards
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: ogs-ts-monitor
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ env.ORG }}/ogs-ts-dotnet
+          path: ogs-ts-dotnet
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ env.ORG }}/OGS-Telemetry-Standard
+          path: OGS-Telemetry-Standard
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build
+        run: dotnet build ogs-ts-monitor/OgsTsMonitor.slnx --nologo
+      - name: Test (incl. the standard's conformance corpus)
+        run: dotnet test ogs-ts-monitor/tests/Ogs.Telemetry.Monitor.Tests --nologo --no-build
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: ogs-ts-monitor
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ env.ORG }}/ogs-ts-dotnet
+          path: ogs-ts-dotnet
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+      - name: Publish self-contained builds
+        run: |
+          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
+            dotnet publish ogs-ts-monitor/src/OgsTsMonitor -c Release -r "$rid" --self-contained \
+              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+              -p:EnableCompressionInSingleFile=true -p:DebugType=none -o "out/$rid" --nologo
+            (cd "out/$rid" && zip -qr "../../OgsTsMonitor-${GITHUB_REF_NAME}-$rid.zip" .)
+          done
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: OgsTsMonitor-*.zip

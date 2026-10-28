@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- UI-free: folds decoded OGS-TS frames into a snapshot and checks them
+       against the standard. Lives beside ogs-ts-dotnet in the workspace:
+       Code/Open-Game-Standards/{ogs-ts-monitor,ogs-ts-dotnet}. -->
+  <PropertyGroup>
+    <RootNamespace>Ogs.Telemetry.Monitor</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../../../ogs-ts-dotnet/src/Ogs.Telemetry.Receiving/Ogs.Telemetry.Receiving.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ogs.Telemetry.Monitor.Tests" />
+  </ItemGroup>
+</Project>

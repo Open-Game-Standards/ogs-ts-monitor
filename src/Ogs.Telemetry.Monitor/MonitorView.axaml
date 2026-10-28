@@ -1,0 +1,307 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:m="using:Ogs.Telemetry.Monitor"
+             xmlns:c="using:Ogs.Telemetry.Monitor.Controls"
+             mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="800"
+             x:Class="Ogs.Telemetry.Monitor.MonitorView"
+             x:DataType="m:MonitorViewModel">
+
+  <UserControl.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="Monitor.Panel" Color="#ffffff"/>
+          <SolidColorBrush x:Key="Monitor.Line" Color="#d3e2c8"/>
+          <SolidColorBrush x:Key="Monitor.Ink" Color="#142e1f"/>
+          <SolidColorBrush x:Key="Monitor.Muted" Color="#5d7a66"/>
+          <SolidColorBrush x:Key="Monitor.Accent" Color="#4c7a2a"/>
+          <SolidColorBrush x:Key="Monitor.Warn" Color="#b5532e"/>
+          <SolidColorBrush x:Key="Monitor.TagD" Color="#2f6fa3"/>
+          <SolidColorBrush x:Key="Monitor.TagM" Color="#4c7a2a"/>
+          <SolidColorBrush x:Key="Monitor.TagE" Color="#b5532e"/>
+          <SolidColorBrush x:Key="Monitor.TagC" Color="#9a6b00"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="Monitor.Panel" Color="#13271c"/>
+          <SolidColorBrush x:Key="Monitor.Line" Color="#23402e"/>
+          <SolidColorBrush x:Key="Monitor.Ink" Color="#e6f0df"/>
+          <SolidColorBrush x:Key="Monitor.Muted" Color="#8aa892"/>
+          <SolidColorBrush x:Key="Monitor.Accent" Color="#a9d47f"/>
+          <SolidColorBrush x:Key="Monitor.Warn" Color="#f0956c"/>
+          <SolidColorBrush x:Key="Monitor.TagD" Color="#8cc3ee"/>
+          <SolidColorBrush x:Key="Monitor.TagM" Color="#b8dd93"/>
+          <SolidColorBrush x:Key="Monitor.TagE" Color="#f4ab89"/>
+          <SolidColorBrush x:Key="Monitor.TagC" Color="#f5d76e"/>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <FontFamily x:Key="Monitor.Mono">Cascadia Mono, Consolas, Menlo, DejaVu Sans Mono, monospace</FontFamily>
+    </ResourceDictionary>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{DynamicResource Monitor.Panel}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Monitor.Line}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="14"/>
+    </Style>
+    <Style Selector="TextBlock.h">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Foreground" Value="{DynamicResource Monitor.Muted}"/>
+      <Setter Property="Margin" Value="0,0,0,8"/>
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{DynamicResource Monitor.Muted}"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="{StaticResource Monitor.Mono}"/>
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="Foreground" Value="{DynamicResource Monitor.Muted}"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.value">
+      <Setter Property="FontFamily" Value="{StaticResource Monitor.Mono}"/>
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.tag">
+      <Setter Property="FontFamily" Value="{StaticResource Monitor.Mono}"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+    <Style Selector="TextBlock.tag.discovery"><Setter Property="Foreground" Value="{DynamicResource Monitor.TagD}"/></Style>
+    <Style Selector="TextBlock.tag.motion"><Setter Property="Foreground" Value="{DynamicResource Monitor.TagM}"/></Style>
+    <Style Selector="TextBlock.tag.event"><Setter Property="Foreground" Value="{DynamicResource Monitor.TagE}"/></Style>
+    <Style Selector="TextBlock.tag.finding"><Setter Property="Foreground" Value="{DynamicResource Monitor.TagC}"/></Style>
+    <Style Selector="TextBlock.warn"><Setter Property="Foreground" Value="{DynamicResource Monitor.Warn}"/></Style>
+    <Style Selector="TextBlock.stale"><Setter Property="Opacity" Value="0.5"/></Style>
+    <Style Selector="ListBox.rows ListBoxItem">
+      <Setter Property="Padding" Value="8,3"/>
+      <Setter Property="MinHeight" Value="0"/>
+    </Style>
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Padding" Value="12,4"/>
+    </Style>
+    <Style Selector="ListBox.objects ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Monitor.Line}"/>
+    </Style>
+    <Style Selector="ListBox.objects ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource Monitor.Line}"/>
+    </Style>
+    <Style Selector="ListBox.objects ListBoxItem:selected">
+      <Setter Property="Foreground" Value="{DynamicResource Monitor.Ink}"/>
+    </Style>
+    <Style Selector="Ellipse.live">
+      <Setter Property="Fill" Value="#86b65a"/>
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,*,6,200">
+
+    <!-- Session header -->
+    <Border Grid.Row="0" Classes="card" Margin="0,0,0,10">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="2">
+          <TextBlock Text="{Binding GameName}" FontSize="22" FontWeight="Bold"
+                     Foreground="{DynamicResource Monitor.Ink}"/>
+          <TextBlock Text="{Binding SessionInfo}" Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+        <TextBlock Grid.Column="1" Text="{Binding StatsText}" Classes="muted mono" FontSize="12"
+                   VerticalAlignment="Bottom" Margin="16,0,0,0"/>
+      </Grid>
+    </Border>
+
+    <!-- Main: objects | attitude, track, time history | channels -->
+    <Grid Grid.Row="1" ColumnDefinitions="230,10,1.7*,10,*">
+
+      <Border Grid.Column="0" Classes="card">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="h" Text="Objects"/>
+          <ListBox Classes="objects" ItemsSource="{Binding Objects}" SelectedItem="{Binding SelectedObject}"
+                   Background="Transparent">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="m:ObjectItem">
+                <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                  <Ellipse Width="8" Height="8" Margin="0,6,8,0" VerticalAlignment="Top"
+                           Fill="Gray" Classes.live="{Binding IsLive}"/>
+                  <StackPanel Grid.Column="1">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                      <TextBlock Text="★" IsVisible="{Binding IsPrimary}" Classes="muted"
+                                 ToolTip.Tip="primary object"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+
+      <Border Grid.Column="2" Classes="card">
+        <Grid RowDefinitions="Auto,Auto,Auto,*">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel>
+              <TextBlock Text="{Binding ObjectTitle}" FontSize="16" FontWeight="SemiBold"/>
+              <TextBlock Text="{Binding ObjectInfo}" Classes="muted" FontSize="12" TextWrapping="Wrap"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
+              <ToggleButton Content="Chase" IsChecked="{Binding Chase}" IsEnabled="{Binding UseAxes}"
+                            ToolTip.Tip="Body-axes view: on = seen from behind with heading removed, so pitch and roll read the same whichever way the object faces; off = fixed world view (for spacecraft and free 6-DoF motion). Not used by the horizon."/>
+              <ToggleButton Content="Horizon" IsChecked="{Binding UseHorizon}"
+                            ToolTip.Tip="Show attitude as an aircraft horizon instead of body axes (on by default for aircraft)"/>
+            </StackPanel>
+          </Grid>
+
+          <Grid Grid.Row="1" ColumnDefinitions="*,12,*" RowDefinitions="Auto,220" Margin="0,10,0,0">
+            <TextBlock Classes="label" Text="ATTITUDE"/>
+            <TextBlock Grid.Column="2" Classes="label" Text="TRACK · TOP-DOWN · LAST 30 S"/>
+            <Panel Grid.Row="1">
+              <c:OrientationView Orientation="{Binding Orientation}" IsLive="{Binding PoseLive}"
+                                 Chase="{Binding Chase}" IsVisible="{Binding UseAxes}"/>
+              <c:AttitudeIndicator Pitch="{Binding Pitch}" Roll="{Binding Roll}" Yaw="{Binding Yaw}"
+                                   IsLive="{Binding PoseLive}" IsVisible="{Binding UseHorizon}"/>
+            </Panel>
+            <c:TrackView Grid.Row="1" Grid.Column="2" Points="{Binding Track}" Heading="{Binding Yaw}"
+                         IsLive="{Binding PoseLive}"/>
+          </Grid>
+
+          <StackPanel Grid.Row="2" Spacing="3" Margin="0,8,0,8">
+            <WrapPanel>
+              <TextBlock Classes="label" Text="YAW" Margin="0,0,6,0"/>
+              <TextBlock Classes="value" FontSize="13" Text="{Binding YawText}" Margin="0,0,14,0"/>
+              <TextBlock Classes="label" Text="PITCH" Margin="0,0,6,0"/>
+              <TextBlock Classes="value" FontSize="13" Text="{Binding PitchText}" Margin="0,0,14,0"/>
+              <TextBlock Classes="label" Text="ROLL" Margin="0,0,6,0"/>
+              <TextBlock Classes="value" FontSize="13" Text="{Binding RollText}" Margin="0,0,14,0"/>
+              <TextBlock Classes="label" Text="RATE" Margin="0,0,6,0"/>
+              <TextBlock Classes="value" FontSize="13" Text="{Binding RateText}"/>
+            </WrapPanel>
+            <TextBlock Classes="warn" FontSize="11" IsVisible="{Binding NearVertical}"
+                       Text="Nose near vertical: yaw and roll angles are ill-defined here; the attitude view stays exact."/>
+            <WrapPanel>
+              <TextBlock Classes="label" Text="POS" Margin="0,0,6,0"/>
+              <TextBlock Classes="mono" FontSize="12" Text="{Binding PositionText}" Margin="0,0,14,0"/>
+              <TextBlock Classes="label" Text="GRAVITY" Margin="0,0,6,0"/>
+              <TextBlock Classes="mono" FontSize="12" Text="{Binding GravityText}"/>
+            </WrapPanel>
+            <WrapPanel>
+              <TextBlock Classes="label" Text="RATES" Margin="0,0,6,0"/>
+              <TextBlock Classes="mono" FontSize="12" Text="{Binding AngularText}" Margin="0,0,14,0"/>
+              <TextBlock Classes="muted" FontSize="11" Text="{Binding DynamicsSource}" VerticalAlignment="Center"/>
+            </WrapPanel>
+          </StackPanel>
+
+          <c:StripChart Grid.Row="3" Lanes="{Binding Lanes}" Now="{Binding Now}" Window="{Binding HistorySeconds}"
+                        MinHeight="160"/>
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="4" Classes="card">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="h" Text="Channels"/>
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="30,*,82,40,64" Margin="8,0,8,4">
+            <TextBlock Grid.Column="0" Classes="label" Text="ID"/>
+            <TextBlock Grid.Column="1" Classes="label" Text="NAME"/>
+            <TextBlock Grid.Column="2" Classes="label" Text="VALUE" TextAlignment="Right"/>
+            <TextBlock Grid.Column="3" Classes="label" Text="UNIT" Margin="8,0,0,0"/>
+            <TextBlock Grid.Column="4" Classes="label" Text="RANGE"/>
+          </Grid>
+          <ListBox Classes="rows" ItemsSource="{Binding Channels}" Background="Transparent">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="m:ChannelRow">
+                <Grid ColumnDefinitions="30,*,82,40,64" ToolTip.Tip="{Binding Tooltip}">
+                  <TextBlock Grid.Column="0" Classes="mono muted" FontSize="12" Text="{Binding Id}" VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="1" Classes="mono" FontSize="12" Text="{Binding Name}"
+                             TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="2" Classes="mono" FontSize="13" FontWeight="SemiBold" TextAlignment="Right"
+                             Text="{Binding Value}" Classes.warn="{Binding OutOfRange}" Classes.stale="{Binding IsStale}"
+                             VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="3" Classes="mono muted" FontSize="12" Text="{Binding Unit}"
+                             Margin="8,0,0,0" VerticalAlignment="Center"/>
+                  <StackPanel Grid.Column="4" VerticalAlignment="Center" IsVisible="{Binding HasRange}">
+                    <ProgressBar Minimum="0" Maximum="1" Value="{Binding Fraction}" MinWidth="0" Height="4"/>
+                    <TextBlock Classes="muted mono" FontSize="9" Text="{Binding RangeText}"/>
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+    </Grid>
+
+    <GridSplitter Grid.Row="2" ResizeDirection="Rows" Background="Transparent"/>
+
+    <!-- Log / events / conformance -->
+    <Border Grid.Row="3" Classes="card" Padding="6">
+      <TabControl Padding="0">
+        <TabItem Header="Stream">
+          <ListBox x:Name="LogList" Classes="rows" ItemsSource="{Binding Log}" Background="Transparent">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="m:LogRow">
+                <Grid ColumnDefinitions="78,88,*">
+                  <TextBlock Classes="mono muted" FontSize="12" Text="{Binding Time}"/>
+                  <TextBlock Grid.Column="1" Classes="tag" Text="{Binding Tag}"
+                             Classes.discovery="{Binding IsDiscovery}" Classes.motion="{Binding IsMotion}"
+                             Classes.event="{Binding IsEvent}" Classes.finding="{Binding IsFinding}"
+                             Margin="8,1,0,0"/>
+                  <TextBlock Grid.Column="2" Classes="mono" FontSize="12" Text="{Binding Text}"
+                             TextTrimming="CharacterEllipsis"/>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </TabItem>
+        <TabItem Header="{Binding EventsHeader}">
+          <ListBox Classes="rows" ItemsSource="{Binding Events}" Background="Transparent">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="m:EventRow">
+                <Grid ColumnDefinitions="60,*,60,80,80,140,90,46">
+                  <TextBlock Classes="mono muted" FontSize="12" Text="{Binding Id}"/>
+                  <TextBlock Grid.Column="1" Classes="mono" FontSize="12" FontWeight="SemiBold" Text="{Binding Name}"/>
+                  <TextBlock Grid.Column="2" Classes="mono" FontSize="12" Text="{Binding Intensity}"/>
+                  <ProgressBar Grid.Column="3" Minimum="0" Maximum="1" Value="{Binding IntensityFraction}"
+                               MinWidth="0" Height="4" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                  <TextBlock Grid.Column="4" Classes="mono muted" FontSize="12" Text="{Binding Duration}"/>
+                  <TextBlock Grid.Column="5" Classes="mono muted" FontSize="12" Text="{Binding Direction}"/>
+                  <TextBlock Grid.Column="6" Classes="mono muted" FontSize="12" Text="{Binding Object}"/>
+                  <TextBlock Grid.Column="7" Classes="mono muted" FontSize="12" Text="{Binding Copies}"
+                             ToolTip.Tip="replays received and deduplicated"/>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </TabItem>
+        <TabItem Header="{Binding FindingsHeader}">
+          <Grid>
+            <TextBlock Text="No conformance findings. Everything received so far matches the standard."
+                       Classes="muted" Margin="10" IsVisible="{Binding NoFindings}"/>
+            <ListBox Classes="rows" ItemsSource="{Binding Findings}" Background="Transparent">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="m:FindingRow">
+                  <Grid ColumnDefinitions="70,170,*,60,70">
+                    <TextBlock Classes="tag finding" Text="{Binding Level}" Classes.warn="{Binding IsWarning}"/>
+                    <TextBlock Grid.Column="1" Classes="mono muted" FontSize="12" Text="{Binding Rule}"/>
+                    <TextBlock Grid.Column="2" FontSize="12" Text="{Binding Message}" TextWrapping="Wrap"/>
+                    <TextBlock Grid.Column="3" Classes="mono" FontSize="12" Text="{Binding Count}" TextAlignment="Right"/>
+                    <TextBlock Grid.Column="4" Classes="mono muted" FontSize="12" Text="{Binding Age}" TextAlignment="Right"/>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
+        </TabItem>
+      </TabControl>
+    </Border>
+  </Grid>
+</UserControl>

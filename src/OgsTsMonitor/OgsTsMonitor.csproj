@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>OgsTsMonitor</AssemblyName>
+    <RootNamespace>OgsTsMonitor</RootNamespace>
+    <ApplicationIcon Condition="Exists('Assets/ogs.ico')">Assets/ogs.ico</ApplicationIcon>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.2" />
+    <!-- transitive via Avalonia.Desktop; pinned past GHSA-xrw6-gwf8-vvr9 (as GameConn) -->
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
+    <ProjectReference Include="..\Ogs.Telemetry.Monitor\Ogs.Telemetry.Monitor.csproj" />
+  </ItemGroup>
+</Project>

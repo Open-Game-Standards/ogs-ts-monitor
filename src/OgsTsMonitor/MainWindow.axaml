@@ -1,0 +1,51 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:OgsTsMonitor"
+        xmlns:m="using:Ogs.Telemetry.Monitor"
+        x:Class="OgsTsMonitor.MainWindow"
+        x:DataType="local:MainWindowViewModel"
+        Title="OGS-TS Monitor"
+        Icon="/Assets/telemetry-standard.png"
+        Width="1360" Height="900" MinWidth="980" MinHeight="640"
+        WindowStartupLocation="CenterScreen">
+  <Window.Styles>
+    <Style Selector="TextBlock.status.error">
+      <Setter Property="Foreground" Value="#f0956c"/>
+    </Style>
+    <Style Selector="TextBlock.status">
+      <Setter Property="Opacity" Value="0.75"/>
+    </Style>
+  </Window.Styles>
+  <DockPanel Margin="14">
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,12">
+      <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+        <Image Source="/Assets/telemetry-standard.png" Width="38" Height="38"/>
+        <StackPanel>
+          <TextBlock Text="OGS-TS Monitor" FontSize="18" FontWeight="Bold"/>
+          <TextBlock Text="Open Game Standards · Telemetry Standard receiver" FontSize="11" Opacity="0.7"/>
+        </StackPanel>
+      </StackPanel>
+
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="28,0,0,0" VerticalAlignment="Center">
+        <TextBlock Text="Group" VerticalAlignment="Center" Opacity="0.75"/>
+        <TextBox Text="{Binding Group}" Width="130" IsEnabled="{Binding CanEditEndpoint}"/>
+        <TextBlock Text="Port" VerticalAlignment="Center" Opacity="0.75"/>
+        <TextBox Text="{Binding Port}" Width="72" IsEnabled="{Binding CanEditEndpoint}"/>
+        <TextBlock Text="Interface" VerticalAlignment="Center" Opacity="0.75"/>
+        <ComboBox ItemsSource="{Binding Interfaces}" SelectedItem="{Binding SelectedInterface}"
+                  Width="220" IsEnabled="{Binding CanEditEndpoint}"/>
+        <Button Content="{Binding ListenLabel}" Click="OnListen" Classes="accent" MinWidth="72"
+                HorizontalContentAlignment="Center"/>
+        <Button Content="Clear" Click="OnClear"/>
+      </StackPanel>
+
+      <TextBlock Grid.Column="2" Text="{Binding Status}" Classes="status" Classes.error="{Binding StatusIsError}"
+                 VerticalAlignment="Center" Margin="16,0" TextTrimming="CharacterEllipsis"/>
+
+      <Button Grid.Column="3" Content="{Binding DemoLabel}" Click="OnDemo"
+              ToolTip.Tip="Publish a demo car to this monitor only (loopback, its own port), so you can see it work without a game. Nothing else on this machine or your network receives it. Start with --demo-lan to send it on your network instead."/>
+    </Grid>
+
+    <m:MonitorView DataContext="{Binding Monitor}"/>
+  </DockPanel>
+</Window>

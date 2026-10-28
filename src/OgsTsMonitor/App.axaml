@@ -1,0 +1,13 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="OgsTsMonitor.App"
+             RequestedThemeVariant="Default">
+  <Application.Styles>
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Light" Accent="#2e6b45" RegionColor="#f6faf2" />
+        <ColorPaletteResources x:Key="Dark" Accent="#86b65a" RegionColor="#0b1811" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
+  </Application.Styles>
+</Application>

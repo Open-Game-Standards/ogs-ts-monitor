@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reusable Avalonia monitor views over Ogs.Telemetry.Monitor.Core:
+       the OGS-TS Monitor app hosts them, and GameConn can embed them. -->
+  <PropertyGroup>
+    <RootNamespace>Ogs.Telemetry.Monitor</RootNamespace>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Ogs.Telemetry.Monitor.Core\Ogs.Telemetry.Monitor.Core.csproj" />
+  </ItemGroup>
+</Project>

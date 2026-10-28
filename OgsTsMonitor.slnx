@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ogs.Telemetry.Monitor.Core/Ogs.Telemetry.Monitor.Core.csproj" />
+    <Project Path="src/Ogs.Telemetry.Monitor/Ogs.Telemetry.Monitor.csproj" />
+    <Project Path="src/OgsTsMonitor/OgsTsMonitor.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ogs.Telemetry.Monitor.Tests/Ogs.Telemetry.Monitor.Tests.csproj" />
+  </Folder>
+  <Folder Name="/ogs-ts-dotnet/">
+    <Project Path="../ogs-ts-dotnet/src/Ogs.Telemetry/Ogs.Telemetry.csproj" />
+    <Project Path="../ogs-ts-dotnet/src/Ogs.Telemetry.Receiving/Ogs.Telemetry.Receiving.csproj" />
+  </Folder>
+</Solution>
