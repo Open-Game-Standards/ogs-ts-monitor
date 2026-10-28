@@ -114,10 +114,12 @@ public sealed class TrackView : Control
             ctx.DrawGeometry(IsLive ? Marker : Muted, MarkerEdge, arrow);
         }
 
+        // the scale always shows; the axis hint only when both fit side by side
         var scale = Text($"grid {Format(step)} m", 10, Muted);
         ctx.DrawText(scale, new Point(b.X + 2, b.Bottom - scale.Height));
         var axes = Text("+Z ↑  +X →", 10, Muted);
-        ctx.DrawText(axes, new Point(b.Right - axes.Width - 2, b.Bottom - axes.Height));
+        if (scale.Width + axes.Width + 16 <= b.Width)
+            ctx.DrawText(axes, new Point(b.Right - axes.Width - 2, b.Bottom - axes.Height));
     }
 
     static double NiceStep(double raw)

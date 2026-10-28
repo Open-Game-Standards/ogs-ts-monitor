@@ -144,13 +144,17 @@ public sealed class OrientationView : Control
 
         // body axes from the centre
         var o = Project(Vector3.Zero).P;
-        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(1.15f, 0, 0), q)).P, AxisX, "x right");
-        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0.95f, 0), q)).P, AxisY, "y up");
-        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0, 1.65f), q)).P, AxisZ, "z fwd");
+        // small sizes: short axis labels, and the caption only if it fits
+        bool compact = size < 200;
+        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(1.15f, 0, 0), q)).P, AxisX, compact ? "x" : "x right");
+        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0.95f, 0), q)).P, AxisY, compact ? "y" : "y up");
+        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0, 1.65f), q)).P, AxisZ, compact ? "z" : "z fwd");
 
-        var mode = Text(Chase ? "chase view · heading removed" : "world view", 10,
-            new SolidColorBrush(Color.FromArgb(170, 200, 215, 195)));
-        ctx.DrawText(mode, new Point(6, Bounds.Height - mode.Height - 4));
+        var brush = new SolidColorBrush(Color.FromArgb(170, 200, 215, 195));
+        var mode = Text(Chase ? "chase view · heading removed" : "world view", 10, brush);
+        if (mode.Width > Bounds.Width - 12) mode = Text(Chase ? "chase" : "world", 10, brush);
+        if (mode.Width <= Bounds.Width - 12)
+            ctx.DrawText(mode, new Point(6, Bounds.Height - mode.Height - 4));
     }
 
     static void DrawAxis(DrawingContext ctx, Point from, Point to, IPen pen, string label)

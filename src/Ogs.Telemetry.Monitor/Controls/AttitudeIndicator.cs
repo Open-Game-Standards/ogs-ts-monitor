@@ -88,7 +88,7 @@ public sealed class AttitudeIndicator : Control
                         bool major = deg % 10 == 0;
                         double w = major ? r * 0.32 : r * 0.14;
                         ctx.DrawLine(Ladder, new Point(c.X - w, y), new Point(c.X + w, y));
-                        if (major)
+                        if (major && r > 70) // ladder numbers only where they're legible
                         {
                             var label = Text(Math.Abs(deg).ToString(CultureInfo.InvariantCulture), 10, Brushes.White);
                             ctx.DrawText(label, new Point(c.X + w + 4, y - label.Height / 2));
