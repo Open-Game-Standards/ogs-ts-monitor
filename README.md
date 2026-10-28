@@ -14,11 +14,12 @@ build it, or to confirm a loader mod is working before you strap in.
 
 - **Senders and objects:** every discovery session on the network (game,
   schema, environment, gravity) and its objects, with live motion rates.
-- **Attitude:** the object's body axes in 3D, at any attitude, so it works
-  for cars, boats, aircraft, spacecraft and anything else, including
-  inverted or vertical. Chase mode removes heading so pitch and roll always
-  read from behind; a horizon dial is available, and is the default for
-  aircraft.
+- **Attitude:** three views, one click apart. **Chase** shows the body axes
+  from behind with heading removed, so pitch and roll read the same whichever
+  way the object faces (the default for vehicles). **World** shows the body
+  axes against fixed world axes, for spacecraft and free 6-DoF motion. Both
+  work at any attitude, including inverted or vertical. **Horizon** is an
+  aircraft attitude indicator (the default for aircraft).
 - **Track:** the last 30 s of position from above, auto-fitted, with heading.
 - **Time history:** auto-scaled strips of roll, pitch, yaw rate, surge, sway,
   heave and height, so a car's 2° of roll is as readable as an aircraft's 60°.
