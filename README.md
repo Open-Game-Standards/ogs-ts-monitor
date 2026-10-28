@@ -106,10 +106,12 @@ dotnet run --project src/OgsTsMonitor -- --demo
 ```
 
 Requires the .NET 10 SDK. CI builds, tests and packages on Windows, Linux
-and macOS on every push (the apps are downloadable from each run's
-artifacts), and `v*` tags publish them as a release. The macOS app is
-assembled, signed and notarized by `build/macos/bundle.sh`; without the
-signing secrets (listed in `.github/workflows/ci.yml`) it is built unsigned.
+and macOS for every push and pull request (each run's artifacts hold the
+apps). Pushes to `main` publish a CalVer release (`vYYYY.MM.DD`), as the
+loader mods do. The macOS app is assembled, signed and notarized by
+`build/macos/bundle.sh` in a separate job that runs in the `release`
+environment: only that job sees the Developer ID, and a maintainer approves
+it before anything is released.
 
 ## Layout and reuse
 

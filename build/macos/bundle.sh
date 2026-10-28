@@ -11,6 +11,7 @@
 #   APPLE_API_KEY               base64 of the App Store Connect API key (.p8)
 #   APPLE_API_KEY_ID, APPLE_API_ISSUER_ID
 # NOTARIZE=0 skips notarization even when the key is present.
+# REQUIRE_SIGNING=1 fails instead of building unsigned or un-notarized (releases).
 set -euo pipefail
 
 publish=$1 version=$2 out=$3
@@ -23,6 +24,8 @@ app="$work/OGS-TS Monitor.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp -R "$publish"/. "$app/Contents/MacOS/"
 rm -f "$app/Contents/MacOS/"*.pdb
+# artifacts don't keep the executable bit
+chmod +x "$app/Contents/MacOS/OgsTsMonitor"
 sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 
 # icon from the OGS-TS mark
@@ -61,11 +64,19 @@ if [ -n "${MACOS_CERTIFICATE:-}" ] && [ -n "${MACOS_CERTIFICATE_PASSWORD:-}" ]; 
   codesign --force --timestamp --options runtime --entitlements "$ent" --sign "$identity" "$app"
   codesign --verify --strict --verbose=2 "$app"
   signed=1
+elif [ "${REQUIRE_SIGNING:-0}" = 1 ]; then
+  echo "REQUIRE_SIGNING=1 but MACOS_CERTIFICATE / MACOS_CERTIFICATE_PASSWORD are not set" >&2
+  exit 1
 else
   echo "MACOS_CERTIFICATE not set: building an unsigned app" >&2
 fi
 
 # --- notarize ----------------------------------------------------------------
+if [ "${REQUIRE_SIGNING:-0}" = 1 ] && [ "${NOTARIZE:-1}" = 1 ] && \
+   { [ -z "${APPLE_API_KEY:-}" ] || [ -z "${APPLE_API_KEY_ID:-}" ] || [ -z "${APPLE_API_ISSUER_ID:-}" ]; }; then
+  echo "REQUIRE_SIGNING=1 but APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER_ID are not all set" >&2
+  exit 1
+fi
 ditto -c -k --keepParent "$app" "$out"
 if [ "$signed" = 1 ] && [ "${NOTARIZE:-1}" = 1 ] && [ -n "${APPLE_API_KEY:-}" ] \
    && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "${APPLE_API_ISSUER_ID:-}" ]; then
