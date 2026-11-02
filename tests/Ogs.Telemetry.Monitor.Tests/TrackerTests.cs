@@ -49,6 +49,70 @@ public class TrackerTests
     static IEnumerable<string> Rules(MonitorSnapshot s, Severity? severity = null) =>
         s.Findings.Where(f => severity is null || f.Severity == severity).Select(f => f.Rule);
 
+    // ---- Several senders (implementation-udp.md § Senders and sessions) --
+
+    static readonly System.Net.IPEndPoint SimA = new(System.Net.IPAddress.Parse("10.0.0.2"), 50001);
+    static readonly System.Net.IPEndPoint SimB = new(System.Net.IPAddress.Parse("10.0.0.3"), 50002);
+
+    [Fact]
+    public void Senders_with_the_same_object_name_stay_apart()
+    {
+        var t = NewTracker();
+        var a = Discovery(Car("player", true, new ChannelDescriptor { Id = 0, Name = "engine.rpm", Unit = "rpm", Type = ChannelType.Number }));
+        a.GameName = "Sim A"; a.InstanceLabel = "Rig 1";
+        var b = Discovery(Car("player", true, new ChannelDescriptor { Id = 0, Name = "vehicle.speed", Unit = "m/s", Type = ChannelType.Number }));
+        b.GameName = "Sim B"; b.Host = "sim-pc";
+        t.Ingest(Encode(FrameType.Discovery, a), SimA);
+        t.Ingest(Encode(FrameType.Discovery, b), SimB);
+
+        var ma = Motion(Pose("player")); ma.Objects![0].Channels = new List<ChannelValue> { new() { Id = 0, Number = 4000 } };
+        var mb = Motion(Pose("player")); mb.Objects![0].Channels = new List<ChannelValue> { new() { Id = 0, Number = 30 } };
+        t.Ingest(Encode(FrameType.Motion, ma), SimA);
+        t.Ingest(Encode(FrameType.Motion, mb), SimB);
+
+        var s = t.Snapshot();
+        Assert.Equal(2, s.Sessions.Count);
+        var sa = s.Sessions.Single(x => x.GameName == "Sim A");
+        var sb = s.Sessions.Single(x => x.GameName == "Sim B");
+        Assert.Equal("Rig 1", sa.InstanceLabel);
+        Assert.Equal("sim-pc", sb.Host);
+        Assert.Equal("10.0.0.2:50001", sa.Source);
+        // each sender's id 0 resolves against its own declaration
+        Assert.Equal("4000", sa.Objects.Single().Channels.Single().Display);
+        Assert.Equal("30", sb.Objects.Single().Channels.Single().Display);
+        Assert.Equal("number", sa.Objects.Single().Channels.Single().Type);
+        Assert.Empty(s.Findings);
+    }
+
+    [Fact]
+    public void A_value_of_the_wrong_type_is_dropped_and_flagged()
+    {
+        var t = NewTracker();
+        t.Ingest(Encode(FrameType.Discovery, Discovery(Car("car", true,
+            new ChannelDescriptor { Id = 0, Name = "lights.headlights", Type = ChannelType.Boolean }))));
+        var m = Motion(Pose("car")); m.Objects![0].Channels = new List<ChannelValue> { new() { Id = 0, Number = 1 } };
+        t.Ingest(Encode(FrameType.Motion, m));
+        var s = t.Snapshot();
+        Assert.Null(s.Sessions.Single().Objects.Single().Channels.Single().Display);
+        Assert.Contains("channel-type", Rules(s, Severity.Warning));
+    }
+
+    [Fact]
+    public void A_sender_above_the_size_envelope_is_a_note()
+    {
+        var t = NewTracker();
+        t.Ingest(Encode(FrameType.Discovery, Discovery(Car())), SimA);
+        // 1,300-byte datagrams at 100 Hz for 5 s: 130 KB/s
+        for (int i = 0; i <= 500; i++)
+        {
+            t.OnDatagram(FrameType.Motion, 1300, SimA);
+            Advance(0.01);
+        }
+        var s = t.Snapshot();
+        Assert.Contains("size-envelope", Rules(s, Severity.Info));
+        Assert.DoesNotContain("size-envelope", Rules(s, Severity.Warning));
+    }
+
     // ---- The standard's corpus -------------------------------------------
 
     [Fact]

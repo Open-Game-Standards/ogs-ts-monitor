@@ -11,7 +11,8 @@ public sealed record MonitorSnapshot(
     IReadOnlyList<Finding> Findings,
     StreamStats Stats);
 
-/// <summary>One sender session: a discovery identity (game + session start).</summary>
+/// <summary>One sender session: a source address and port with its game
+/// and session start. <see cref="Source"/> is "" for frames fed without one.</summary>
 public sealed record SessionView(
     string GameName,
     long SessionStartUnixUs,
@@ -26,7 +27,10 @@ public sealed record SessionView(
     uint Generation,
     int PageCount,
     int PagesSeen,
-    IReadOnlyList<ObjectView> Objects);
+    IReadOnlyList<ObjectView> Objects,
+    string InstanceLabel = "",
+    string Host = "",
+    string Source = "");
 
 public sealed record ObjectView(
     string Key,
@@ -65,7 +69,8 @@ public sealed record ChannelView(
     string? Display,
     double? Number,
     bool OutOfRange,
-    double? AgeSeconds);
+    double? AgeSeconds,
+    string Type = "");
 
 public sealed record EventView(
     uint Id,

@@ -206,7 +206,7 @@ public sealed class MonitorViewModel : Observable
             var item = Objects.FirstOrDefault(i => i.Key == o.Key);
             if (item is null) continue;
             item.IsLive = o.MotionRateHz > 0;
-            item.Detail = $"{sv.GameName} · {Label(o)}" + (o.MotionRateHz > 0 ? Inv($" · {o.MotionRateHz:0} Hz") : "");
+            item.Detail = $"{SenderName(sv)} · {Label(o)}" + (o.MotionRateHz > 0 ? Inv($" · {o.MotionRateHz:0} Hz") : "");
         }
         // Follow the sender that's streaming. Sessions order by latest
         // discovery, and two senders re-announce in turn, so "newest" alone
@@ -246,14 +246,30 @@ public sealed class MonitorViewModel : Observable
             SessionInfo = "Listening for OGS-TS discovery frames on the local network.";
             return;
         }
-        GameName = sv.GameName.Length == 0 ? "(unnamed game)" : sv.GameName;
+        GameName = SenderName(sv);
         var started = DateTimeOffset.FromUnixTimeMilliseconds(sv.SessionStartUnixUs / 1000).ToLocalTime();
         var pages = sv.PageCount > 1 ? $" · pages {sv.PagesSeen}/{sv.PageCount}" : "";
         SessionInfo = string.Create(CultureInfo.InvariantCulture,
-            $"schema {sv.SchemaVersion} · {sv.Medium} · session from {started:HH:mm:ss} · " +
+            $"{Where(sv)}schema {sv.SchemaVersion} · {sv.Medium} · session from {started:HH:mm:ss} · " +
             $"discovery {sv.DiscoveryAgeSeconds:0.0} s ago ({sv.DiscoveryCount}) · " +
             $"generation {sv.Generation}{pages} · " +
             $"air {sv.AirDensity:0.###} kg/m³ · {sv.Temperature:0.#} °C · {sv.Pressure:0} Pa");
+    }
+
+    /// <summary>Game name, then the instance label that tells several
+    /// instances apart (implementation-udp.md § Senders and sessions).</summary>
+    static string SenderName(SessionView sv)
+    {
+        var game = sv.GameName.Length == 0 ? "(unnamed game)" : sv.GameName;
+        return sv.InstanceLabel.Length > 0 ? $"{game} ({sv.InstanceLabel})" : game;
+    }
+
+    static string Where(SessionView sv)
+    {
+        var host = sv.Host.Length > 0 ? sv.Host : "";
+        var src = sv.Source.Length > 0 ? sv.Source : "";
+        var parts = new[] { host, src }.Where(p => p.Length > 0).ToArray();
+        return parts.Length == 0 ? "" : string.Join(" · ", parts) + " · ";
     }
 
     void RefreshObject(ObjectView? o)

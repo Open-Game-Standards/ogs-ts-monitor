@@ -24,9 +24,11 @@ build it, or to confirm a loader mod is working before you strap in.
 
 ## What it shows
 
-- **Senders and objects:** every discovery session on the network (game,
+- **Senders and objects:** every sender on the network, told apart by
+  source address and port, with its session (game, instance label, host,
   schema, environment, gravity, discovery generation and pages) and its
-  objects, with live motion rates. Paged discovery and motion parts merge
+  objects, with live motion rates. Two games publishing the same object
+  name stay separate. Paged discovery and motion parts merge
   into one picture: pages of a generation by object and channel id, a
   tick's parts by timestamp.
 - **Attitude:** three views, one click apart. **Chase** shows the body axes
@@ -59,11 +61,13 @@ rather than flooding the list.
 | `event-id-order` | warning | new event ids never go backwards (session-monotonic) |
 | `event-intensity` | warning | event intensity is within 0..1 (C-3) |
 | `datagram-budget` | warning | every datagram is at most 1,400 bytes (implementation-udp.md, Datagram budget) |
+| `channel-type` | warning | a channel's values use the variant its descriptor declares |
 | `generation-not-bumped` | warning | descriptors change only under a new discovery generation |
 | `page-index`, `part-index` | warning | a page or part index is below its count |
 | `generation-step` | note | a new generation is the previous one plus one (otherwise discovery was missed or the sender restarted) |
 | `motion-before-discovery` | note | motion arriving before anything to interpret it against |
 | `out-of-range` | note | a value outside its declared operating range |
+| `size-envelope` | note | a sender stays within ~105 KB/s and ~30 KB of discovery (implementation-udp.md, Sender size envelope) |
 
 The checks follow the reference receiver in
 [ogs-ts-dotnet](https://github.com/Open-Game-Standards/ogs-ts-dotnet) and the

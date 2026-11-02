@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using CapnpGen;
 using Quaternion = System.Numerics.Quaternion;
 using Vector3 = System.Numerics.Vector3;
@@ -14,10 +15,12 @@ namespace Ogs.Telemetry.Monitor;
 /// with <see cref="Snapshot"/>. Thread-safe: frames arrive on the receive
 /// thread, snapshots are taken on the UI thread.
 ///
-/// Sessions are keyed by discovery identity (game name + session start).
-/// Motion and event frames carry no session id, so motion is attributed by
-/// object name to the latest discovery that declared it — the same name in
-/// two concurrent sessions resolves to the most recent declaration.
+/// Senders are told apart by source address and port (implementation-udp.md
+/// § Senders and sessions): each has its own session, objects, descriptor
+/// tables and event dedup, and motion and events belong to the session of
+/// their source. A discovery frame with a new game name or session start
+/// from the same source starts a new session. Frames fed without a source
+/// (<see cref="Ingest"/> with none) count as one unattributed sender.
 ///
 /// Paged discovery and motion parts (implementation-udp.md § Datagram
 /// budget): pages of a session's current generation merge by object name
@@ -44,13 +47,23 @@ public sealed class StreamTracker
     readonly double _tickSeconds;
     readonly long _start;
 
-    readonly Dictionary<(string Game, long Start), Session> _sessions = new();
-    readonly Dictionary<string, (Session Session, ObjectState Obj)> _objectsByName = new();
+    /// <summary>Source of frames fed without one.</summary>
+    public static readonly IPEndPoint Unattributed = new(IPAddress.None, 0);
+    /// <summary>The standard's sender size envelope (implementation-udp.md
+    /// § Sender size envelope): total bytes per second, and discovery bytes
+    /// per generation.</summary>
+    public const double EnvelopeBytesPerSecond = 105_000;
+    public const int EnvelopeDiscoveryBytes = 30_000;
+    static readonly TimeSpan EnvelopeWindow = TimeSpan.FromSeconds(5);
+
+    readonly Dictionary<IPEndPoint, Session> _sessions = new();
     readonly LinkedList<LogLine> _log = new();
     long _logSeq;
-    readonly Dictionary<uint, EventState> _eventsById = new();
+    readonly Dictionary<(IPEndPoint, uint), EventState> _eventsById = new();
     readonly LinkedList<EventState> _events = new();
-    uint? _maxEventId;
+    readonly Dictionary<IPEndPoint, uint> _maxEventId = new();
+    readonly Dictionary<IPEndPoint, Queue<(long At, int Bytes)>> _bytes = new();
+    readonly Dictionary<IPEndPoint, int> _lastDiscoveryBytes = new();
     readonly Conformance _findings;
 
     long _discoveryFrames, _motionFrames, _eventFrames;
@@ -78,10 +91,10 @@ public sealed class StreamTracker
     /// feed one tracker. Returns the tracker.</summary>
     public StreamTracker Attach(TelemetryReceiver receiver)
     {
-        receiver.DiscoveryReceived += OnDiscovery;
-        receiver.MotionReceived += OnMotion;
-        receiver.EventReceived += OnEvent;
-        receiver.DatagramReceived += OnDatagram;
+        receiver.DiscoveryReceivedFrom += (src, d) => OnDiscovery(d, src);
+        receiver.MotionReceivedFrom += (src, m) => OnMotion(m, src);
+        receiver.EventReceivedFrom += (src, e) => OnEvent(e, src);
+        receiver.DatagramReceivedFrom += (src, type, length) => OnDatagram(type, length, src);
         lock (_gate) _receiverCounters.Add(() => (receiver.ForeignSkipped, receiver.DecodeErrors));
         return this;
     }
@@ -89,22 +102,22 @@ public sealed class StreamTracker
     /// <summary>Decodes one datagram (OMT1 envelope + Cap'n Proto message)
     /// and folds it in, exactly as a live packet would be. Returns false for
     /// foreign packets and decode errors (counted in the stats).</summary>
-    public bool Ingest(ReadOnlyMemory<byte> datagram)
+    public bool Ingest(ReadOnlyMemory<byte> datagram, IPEndPoint? source = null)
     {
         if (!Envelope.TryUnwrap(datagram, out var type, out var payload))
         {
             lock (_gate) _ingestForeign++;
             return false;
         }
-        OnDatagram(type, datagram.Length);
+        OnDatagram(type, datagram.Length, source);
         try
         {
             var root = MessageDecoder.DecodeRoot(payload.Span);
             switch (type)
             {
-                case FrameType.Discovery: OnDiscovery(DiscoveryFrame.READER.create(root)); break;
-                case FrameType.Motion: OnMotion(MotionFrame.READER.create(root)); break;
-                case FrameType.Event: OnEvent(EventFrame.READER.create(root)); break;
+                case FrameType.Discovery: OnDiscovery(DiscoveryFrame.READER.create(root), source); break;
+                case FrameType.Motion: OnMotion(MotionFrame.READER.create(root), source); break;
+                case FrameType.Event: OnEvent(EventFrame.READER.create(root), source); break;
                 default: return true; // unknown frame types are skipped (evolution rules)
             }
             return true;
@@ -119,26 +132,54 @@ public sealed class StreamTracker
     /// <summary>Checks one datagram's size against the 1,400-byte budget
     /// (a MUST). <see cref="Attach"/> wires it to the receiver;
     /// <see cref="Ingest"/> calls it itself.</summary>
-    public void OnDatagram(FrameType type, int length)
+    public void OnDatagram(FrameType type, int length, IPEndPoint? source = null)
     {
-        if (length <= DatagramBudget) return;
         long now = _now();
+        var src = source ?? Unattributed;
         lock (_gate)
-            _findings.Warn("datagram-budget",
-                $"{type.ToString().ToLowerInvariant()} datagram of {length} bytes exceeds the " +
-                $"{DatagramBudget}-byte budget (page discovery, split motion into parts)", now);
+        {
+            if (length > DatagramBudget)
+                _findings.Warn("datagram-budget",
+                    $"{type.ToString().ToLowerInvariant()} datagram of {length} bytes exceeds the " +
+                    $"{DatagramBudget}-byte budget (page discovery, split motion into parts)", now);
+            if (type == FrameType.Discovery) _lastDiscoveryBytes[src] = length;
+            CheckEnvelope(src, length, now);
+        }
     }
+
+    /// <summary>The sender size envelope is a SHOULD: a sender above it is
+    /// reported as information, averaged over a few seconds.</summary>
+    void CheckEnvelope(IPEndPoint source, int length, long now)
+    {
+        if (!_bytes.TryGetValue(source, out var q)) _bytes[source] = q = new();
+        q.Enqueue((now, length));
+        long horizon = now - (long)(EnvelopeWindow.TotalSeconds / _tickSeconds);
+        while (q.Count > 0 && q.Peek().At < horizon) q.Dequeue();
+        if (q.Count < 2) return;
+        double span = Seconds(now - q.Peek().At);
+        if (span < EnvelopeWindow.TotalSeconds * 0.8) return; // not a full window yet
+        double rate = q.Sum(e => (double)e.Bytes) / span;
+        if (rate > EnvelopeBytesPerSecond)
+            _findings.Info("size-envelope",
+                $"{Who(source)} sends {rate / 1000:0} KB/s, above the ~{EnvelopeBytesPerSecond / 1000:0} KB/s " +
+                "sender size envelope (implementation-udp.md § Sender size envelope)", now);
+    }
+
+    string Who(IPEndPoint source) =>
+        _sessions.TryGetValue(source, out var s) ? s.Who
+        : ReferenceEquals(source, Unattributed) ? "the sender" : source.ToString();
 
     public void Clear()
     {
         lock (_gate)
         {
             _sessions.Clear();
-            _objectsByName.Clear();
             _log.Clear();
             _eventsById.Clear();
             _events.Clear();
-            _maxEventId = null;
+            _maxEventId.Clear();
+            _bytes.Clear();
+            _lastDiscoveryBytes.Clear();
             _findings.Clear();
             _discoveryFrames = _motionFrames = _eventFrames = 0;
             _motionArrivals.Clear();
@@ -147,20 +188,25 @@ public sealed class StreamTracker
 
     // ---- Discovery --------------------------------------------------------
 
-    public void OnDiscovery(DiscoveryFrame.READER d)
+    public void OnDiscovery(DiscoveryFrame.READER d, IPEndPoint? source = null)
     {
         long now = _now();
+        var src = source ?? Unattributed;
         lock (_gate)
         {
             _discoveryFrames++;
             string game = d.GameName ?? "";
-            var key = (game, d.SessionStartUnixUs);
-            bool isNew = !_sessions.TryGetValue(key, out var session);
-            if (session is null)
+            _sessions.TryGetValue(src, out var session);
+            // a new game or session start from the same source is a new session
+            bool isNew = session is null || session.Game != game || session.Start != d.SessionStartUnixUs;
+            if (isNew)
             {
-                session = new Session(game, d.SessionStartUnixUs);
-                _sessions[key] = session;
+                session = new Session(src, game, d.SessionStartUnixUs);
+                _sessions[src] = session;
+                _maxEventId.Remove(src);
             }
+            session!.InstanceLabel = d.InstanceLabel ?? "";
+            session.Host = d.Host ?? "";
             session.DiscoveryCount++;
             session.LastDiscovery = now;
             session.SchemaVersion = d.SchemaVersion;
@@ -171,7 +217,7 @@ public sealed class StreamTracker
             session.Pressure = env.Pressure;
             session.Gravity = Ogs.Telemetry.Gravity.Session(env);
 
-            string who = $"'{game}'";
+            string who = session.Who;
             bool paged = d.PageCount > 1;
             int page = paged ? d.Page : 0;
             if (paged && d.Page >= d.PageCount)
@@ -201,6 +247,7 @@ public sealed class StreamTracker
             session.PageCount = paged ? d.PageCount : 1;
             session.PageSignatures[page] = signature;
             session.PagesSeen.Add(page);
+            if (_lastDiscoveryBytes.TryGetValue(src, out var bytes)) session.PageBytes[page] = bytes;
 
             if (d.SchemaVersion != 1)
                 _findings.Warn("schema-version", $"{who} declares schemaVersion {d.SchemaVersion}; this monitor reads schema 1", now);
@@ -238,7 +285,6 @@ public sealed class StreamTracker
                         $"'{name}' declares channel id {id} more than once (its values can't be attributed)", now);
                 foreach (var v in o.Values)
                     ApplyValue(obj, v, now, $"'{name}' discovery value");
-                _objectsByName[name] = (session, obj);
             }
 
             bool complete = session.Complete;
@@ -249,10 +295,15 @@ public sealed class StreamTracker
                 foreach (var obj in session.Objects.Values) obj.DropUndeclared();
                 if (!session.Objects.Values.Any(o => o.Primary && o.IdentityPage != int.MaxValue))
                     _findings.Warn("no-primary", $"{who} declares no primary object", now);
+                int total = session.PageBytes.Values.Sum();
+                if (total > EnvelopeDiscoveryBytes)
+                    _findings.Info("size-envelope",
+                        $"{who} declares {total / 1000.0:0.#} KB of discovery, above the ~{EnvelopeDiscoveryBytes / 1000} KB " +
+                        "sender size envelope (implementation-udp.md § Sender size envelope)", now);
             }
 
             Log(now, LogKind.Discovery,
-                $"\"{game}\" · schema {d.SchemaVersion} · {Plural(objects.Count, "object")} · " +
+                $"{who} · schema {d.SchemaVersion} · {Plural(objects.Count, "object")} · " +
                 $"{Plural(objects.Sum(o => o.Channels.Count), "channel")} · {session.Medium}" +
                 $" · generation {d.Generation}" +
                 (paged ? $" · page {d.Page + 1}/{d.PageCount}{(complete ? " · complete" : "")}" : "") +
@@ -262,9 +313,10 @@ public sealed class StreamTracker
 
     // ---- Motion -----------------------------------------------------------
 
-    public void OnMotion(MotionFrame.READER m)
+    public void OnMotion(MotionFrame.READER m, IPEndPoint? source = null)
     {
         long now = _now();
+        var src = source ?? Unattributed;
         lock (_gate)
         {
             _motionFrames++;
@@ -278,10 +330,12 @@ public sealed class StreamTracker
             var objects = m.Objects;
             if (objects.Count == 0) return;
 
-            if (_sessions.Count == 0)
+            // motion belongs to the session of its source
+            if (!_sessions.TryGetValue(src, out var session))
             {
                 _findings.Info("motion-before-discovery",
-                    "motion arriving before any discovery: channels and objects can't be identified yet", now);
+                    $"motion from {Who(src)} arriving before its discovery: channels and objects can't be identified yet", now);
+                return;
             }
 
             // Primary first: if the frame carries a declared primary object it
@@ -289,7 +343,7 @@ public sealed class StreamTracker
             int primaryIndex = -1;
             for (int i = 0; i < objects.Count; i++)
             {
-                if (_objectsByName.TryGetValue(objects[i].Name ?? "", out var e) && e.Obj.Primary)
+                if (session.Objects.TryGetValue(objects[i].Name ?? "", out var e) && e.Primary)
                 {
                     primaryIndex = i;
                     break;
@@ -302,13 +356,11 @@ public sealed class StreamTracker
             foreach (var mo in objects)
             {
                 string name = mo.Name ?? "";
-                if (!_objectsByName.TryGetValue(name, out var entry))
+                if (!session.Objects.TryGetValue(name, out var obj) || !obj.Declared)
                 {
-                    if (_sessions.Count > 0)
-                        _findings.Warn("undeclared-object", $"motion for '{name}', which no discovery declares", now);
+                    _findings.Warn("undeclared-object", $"{session.Who} sends motion for '{name}', which its discovery doesn't declare", now);
                     continue;
                 }
-                var (session, obj) = entry;
 
                 // channel values: only for the generation the tables describe;
                 // held back while that generation's pages are still arriving
@@ -364,34 +416,37 @@ public sealed class StreamTracker
 
     // ---- Events -----------------------------------------------------------
 
-    public void OnEvent(EventFrame.READER e)
+    public void OnEvent(EventFrame.READER e, IPEndPoint? source = null)
     {
         long now = _now();
+        var src = source ?? Unattributed;
         lock (_gate)
         {
             _eventFrames++;
             foreach (var ev in e.Events)
             {
-                if (_eventsById.TryGetValue(ev.Id, out var known))
+                // ids are session-monotonic per sender: dedup per source
+                if (_eventsById.TryGetValue((src, ev.Id), out var known))
                 {
                     known.Copies++; // a replay for redundancy: deduplicated
                     continue;
                 }
-                if (_maxEventId is uint max && ev.Id < max)
+                if (_maxEventId.TryGetValue(src, out var max) && ev.Id < max)
                     _findings.Warn("event-id-order",
                         $"new event id {ev.Id} ('{ev.Name}') is below the highest seen ({max}); ids are session-monotonic", now);
-                _maxEventId = _maxEventId is uint m2 ? Math.Max(m2, ev.Id) : ev.Id;
+                _maxEventId[src] = _maxEventId.TryGetValue(src, out var m2) ? Math.Max(m2, ev.Id) : ev.Id;
                 if (ev.Intensity < 0f || ev.Intensity > 1f || float.IsNaN(ev.Intensity))
                     _findings.Warn("event-intensity", $"event '{ev.Name}' intensity {F(ev.Intensity)} is outside 0..1", now);
 
                 Vector3? dir = ev.which == Event.WHICH.Direction ? V(ev.Direction) : null;
-                var state = new EventState(ev.Id, ev.Name ?? "", ev.Intensity, ev.Duration, dir,
+                var state = new EventState(src, ev.Id, ev.Name ?? "", ev.Intensity, ev.Duration, dir,
                     ev.Object ?? "", e.Timestamp, now);
-                _eventsById[ev.Id] = state;
+                _eventsById[(src, ev.Id)] = state;
                 _events.AddLast(state);
                 while (_events.Count > MaxEvents)
                 {
-                    _eventsById.Remove(_events.First!.Value.Id);
+                    var first = _events.First!.Value;
+                    _eventsById.Remove((first.Source, first.Id));
                     _events.RemoveFirst();
                 }
                 Log(now, LogKind.Event,
@@ -422,7 +477,9 @@ public sealed class StreamTracker
                         .OrderByDescending(o => o.Primary)
                         .ThenBy(o => o.Name, StringComparer.Ordinal)
                         .Select(o => o.View(s, now, Seconds))
-                        .ToList()))
+                        .ToList(),
+                    s.InstanceLabel, s.Host,
+                    ReferenceEquals(s.Source, Unattributed) ? "" : s.Source.ToString()))
                 .ToList();
             var events = _events.Reverse()
                 .Select(ev => new EventView(ev.Id, ev.Name, ev.Intensity, ev.Duration, ev.Direction,
@@ -469,6 +526,20 @@ public sealed class StreamTracker
             _findings.Warn("undeclared-channel", $"{where} carries channel id {v.Id}, which '{obj.Name}' doesn't declare", now);
             return;
         }
+        bool matches = ch.Type switch
+        {
+            ChannelType.number => v.which == ChannelValue.WHICH.Number,
+            ChannelType.boolean => v.which == ChannelValue.WHICH.Boolean,
+            ChannelType.text => v.which == ChannelValue.WHICH.Text,
+            _ => true,
+        };
+        if (!matches)
+        {
+            // a value whose variant differs from the declared type is dropped
+            _findings.Warn("channel-type",
+                $"{where} sends {ch.Name} as {v.which.ToString().ToLowerInvariant()}, but it is declared {ch.Type}", now);
+            return;
+        }
         ch.Updated = now;
         switch (v.which)
         {
@@ -506,7 +577,7 @@ public sealed class StreamTracker
             foreach (var c in o.Channels)
             {
                 sb.Append('\u001f').Append(c.Id).Append('|').Append(c.Name).Append('|').Append(c.Unit)
-                  .Append('|').Append(c.Description);
+                  .Append('|').Append(c.Description).Append('|').Append(c.Type);
                 if (c.which == ChannelDescriptor.WHICH.Range)
                     sb.Append('|').Append(c.Range.Min.ToString(CultureInfo.InvariantCulture))
                       .Append('|').Append(c.Range.Max.ToString(CultureInfo.InvariantCulture));
@@ -550,10 +621,16 @@ public sealed class StreamTracker
 
     // ---- State ------------------------------------------------------------
 
-    sealed class Session(string game, long start)
+    sealed class Session(IPEndPoint source, string game, long start)
     {
+        public IPEndPoint Source { get; } = source;
         public string Game { get; } = game;
         public long Start { get; } = start;
+        public string InstanceLabel = "", Host = "";
+        /// <summary>The sender as findings name it: game, then instance label.</summary>
+        public string Who => InstanceLabel.Length > 0 ? $"'{Game}' ({InstanceLabel})" : $"'{Game}'";
+        /// <summary>Datagram size of each page of the current generation.</summary>
+        public readonly Dictionary<int, int> PageBytes = new();
         public ushort SchemaVersion;
         public string Medium = "";
         public float AirDensity, Temperature, Pressure;
@@ -576,6 +653,7 @@ public sealed class StreamTracker
         {
             PagesSeen.Clear();
             PageSignatures.Clear();
+            PageBytes.Clear();
             foreach (var o in Objects.Values) o.StartGeneration();
         }
     }
@@ -603,7 +681,7 @@ public sealed class StreamTracker
         public long? LastMotionLog;
         public readonly Queue<MotionSample> History = new();
 
-        public static string KeyOf(Session s, string name) => $"{s.Game}\u001f{s.Start}\u001f{name}";
+        public static string KeyOf(Session s, string name) => $"{s.Source}\u001f{s.Game}\u001f{s.Start}\u001f{name}";
         readonly Queue<long> _arrivals = new();
 
         public void RecordArrival(long now)
@@ -641,6 +719,7 @@ public sealed class StreamTracker
                 ch.Name = d.Name ?? "";
                 ch.Unit = d.Unit ?? "";
                 ch.Description = d.Description ?? "";
+                ch.Type = d.Type;
                 bool ranged = d.which == ChannelDescriptor.WHICH.Range;
                 ch.Min = ranged ? d.Range.Min : null;
                 ch.Max = ranged ? d.Range.Max : null;
@@ -675,7 +754,8 @@ public sealed class StreamTracker
                 Pose is null ? s.Gravity : EffectiveGravity, LocalGravity,
                 Channels.Values.OrderBy(c => c.Id).Select(c => new ChannelView(
                     c.Id, c.Name, c.Unit, c.Min, c.Max, c.Description, c.Display, c.Number,
-                    c.OutOfRange, c.Updated is long u ? seconds(now - u) : null)).ToList());
+                    c.OutOfRange, c.Updated is long u ? seconds(now - u) : null,
+                    c.Type == ChannelType.unspecified ? "" : c.Type.ToString())).ToList());
         }
     }
 
@@ -683,6 +763,7 @@ public sealed class StreamTracker
     {
         public ushort Id { get; } = id;
         public string Name = "", Unit = "", Description = "";
+        public ChannelType Type;
         public double? Min, Max;
         public string? Display;
         public double? Number;
@@ -690,9 +771,10 @@ public sealed class StreamTracker
         public long? Updated;
     }
 
-    sealed class EventState(uint id, string name, float intensity, float duration, Vector3? direction,
-                             string obj, double timestamp, long arrived)
+    sealed class EventState(IPEndPoint source, uint id, string name, float intensity, float duration,
+                             Vector3? direction, string obj, double timestamp, long arrived)
     {
+        public IPEndPoint Source { get; } = source;
         public uint Id { get; } = id;
         public string Name { get; } = name;
         public float Intensity { get; } = intensity;
