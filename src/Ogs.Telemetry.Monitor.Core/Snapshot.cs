@@ -23,6 +23,9 @@ public sealed record SessionView(
     float Pressure,
     double DiscoveryAgeSeconds,
     long DiscoveryCount,
+    uint Generation,
+    int PageCount,
+    int PagesSeen,
     IReadOnlyList<ObjectView> Objects);
 
 public sealed record ObjectView(

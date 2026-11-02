@@ -18,11 +18,22 @@ namespace Ogs.Telemetry.Monitor;
 /// Motion and event frames carry no session id, so motion is attributed by
 /// object name to the latest discovery that declared it — the same name in
 /// two concurrent sessions resolves to the most recent declaration.
+///
+/// Paged discovery and motion parts (implementation-udp.md § Datagram
+/// budget): pages of a session's current generation merge by object name
+/// and channel id, an object's identity coming from the lowest page that
+/// lists it; channels drop out only once a generation is complete. Pose,
+/// dynamics and rate come from the first part listing an object in a
+/// tick; channel values apply only when the motion frame names the
+/// session's current generation, and are held back while that
+/// generation's pages are still arriving.
 /// </summary>
 public sealed class StreamTracker
 {
     public const int MaxLogLines = 400;
     public const int MaxEvents = 200;
+    /// <summary>The standard's datagram budget, envelope included.</summary>
+    public const int DatagramBudget = 1400;
     /// <summary>How much motion history each object keeps for the time-history views.</summary>
     public static readonly TimeSpan HistoryWindow = TimeSpan.FromSeconds(30);
     /// <summary>Motion log lines per object, at most one per this interval.</summary>
@@ -70,6 +81,7 @@ public sealed class StreamTracker
         receiver.DiscoveryReceived += OnDiscovery;
         receiver.MotionReceived += OnMotion;
         receiver.EventReceived += OnEvent;
+        receiver.DatagramReceived += OnDatagram;
         lock (_gate) _receiverCounters.Add(() => (receiver.ForeignSkipped, receiver.DecodeErrors));
         return this;
     }
@@ -84,6 +96,7 @@ public sealed class StreamTracker
             lock (_gate) _ingestForeign++;
             return false;
         }
+        OnDatagram(type, datagram.Length);
         try
         {
             var root = MessageDecoder.DecodeRoot(payload.Span);
@@ -101,6 +114,19 @@ public sealed class StreamTracker
             lock (_gate) _ingestDecodeErrors++;
             return false;
         }
+    }
+
+    /// <summary>Checks one datagram's size against the 1,400-byte budget
+    /// (a MUST). <see cref="Attach"/> wires it to the receiver;
+    /// <see cref="Ingest"/> calls it itself.</summary>
+    public void OnDatagram(FrameType type, int length)
+    {
+        if (length <= DatagramBudget) return;
+        long now = _now();
+        lock (_gate)
+            _findings.Warn("datagram-budget",
+                $"{type.ToString().ToLowerInvariant()} datagram of {length} bytes exceeds the " +
+                $"{DatagramBudget}-byte budget (page discovery, split motion into parts)", now);
     }
 
     public void Clear()
@@ -146,6 +172,36 @@ public sealed class StreamTracker
             session.Gravity = Ogs.Telemetry.Gravity.Session(env);
 
             string who = $"'{game}'";
+            bool paged = d.PageCount > 1;
+            int page = paged ? d.Page : 0;
+            if (paged && d.Page >= d.PageCount)
+                _findings.Warn("page-index", $"{who} sends discovery page {d.Page} of {d.PageCount}", now);
+
+            bool newGeneration = !session.HasGeneration || d.Generation != session.Generation;
+
+            // descriptors may change only under a new generation (a MUST)
+            string signature = Signature(d);
+            if (!newGeneration && session.PageSignatures.TryGetValue(page, out var previous) &&
+                previous != signature)
+                _findings.Warn("generation-not-bumped",
+                    $"{who} changed its descriptors without a new generation " +
+                    $"(generation {d.Generation}{(paged ? $", page {page}" : "")})", now);
+
+            if (newGeneration)
+            {
+                if (session.HasGeneration && d.Generation != unchecked(session.Generation + 1))
+                    _findings.Info("generation-step",
+                        $"{who} moved from generation {session.Generation} to {d.Generation} " +
+                        $"(generations increment by one: discovery missed, or the sender restarted)", now);
+                session.Generation = d.Generation;
+                session.HasGeneration = true;
+                session.StartGeneration();
+            }
+            else if (!paged) session.StartGeneration(); // an unpaged frame is the complete set
+            session.PageCount = paged ? d.PageCount : 1;
+            session.PageSignatures[page] = signature;
+            session.PagesSeen.Add(page);
+
             if (d.SchemaVersion != 1)
                 _findings.Warn("schema-version", $"{who} declares schemaVersion {d.SchemaVersion}; this monitor reads schema 1", now);
             if (env.which == CapnpGen.Environment.WHICH.GravityVector &&
@@ -154,9 +210,6 @@ public sealed class StreamTracker
                     $"{who} gravity {F(env.Gravity)} != |gravityVector| {F(session.Gravity.Length())}", now);
 
             var objects = d.Objects;
-            if (!objects.Any(o => o.Primary))
-                _findings.Warn("no-primary", $"{who} declares no primary object", now);
-
             var seen = new HashSet<string>();
             foreach (var o in objects)
             {
@@ -169,12 +222,17 @@ public sealed class StreamTracker
                     session.Objects[name] = obj;
                 }
                 obj.Declared = true;
-                obj.Type = o.Type.ToString();
-                obj.TypeLabel = o.TypeLabel ?? "";
-                obj.Location = o.Location ?? "";
-                obj.Primary = o.Primary;
-                obj.DrivePointCount = o.DrivePoints.Count;
-                obj.SetChannels(o.Channels, out var duplicates);
+                if (page <= obj.IdentityPage)
+                {
+                    // the lowest-numbered page listing an object carries its identity
+                    obj.IdentityPage = page;
+                    obj.Type = o.Type.ToString();
+                    obj.TypeLabel = o.TypeLabel ?? "";
+                    obj.Location = o.Location ?? "";
+                    obj.Primary = o.Primary;
+                    obj.DrivePointCount = o.DrivePoints.Count;
+                }
+                obj.MergeChannels(o.Channels, page, out var duplicates);
                 foreach (var id in duplicates)
                     _findings.Warn("duplicate-channel-id",
                         $"'{name}' declares channel id {id} more than once (its values can't be attributed)", now);
@@ -183,9 +241,21 @@ public sealed class StreamTracker
                 _objectsByName[name] = (session, obj);
             }
 
+            bool complete = session.Complete;
+            if (complete)
+            {
+                // the whole set is known: channels it no longer declares go,
+                // and exactly one primary object should be among its objects
+                foreach (var obj in session.Objects.Values) obj.DropUndeclared();
+                if (!session.Objects.Values.Any(o => o.Primary && o.IdentityPage != int.MaxValue))
+                    _findings.Warn("no-primary", $"{who} declares no primary object", now);
+            }
+
             Log(now, LogKind.Discovery,
                 $"\"{game}\" · schema {d.SchemaVersion} · {Plural(objects.Count, "object")} · " +
                 $"{Plural(objects.Sum(o => o.Channels.Count), "channel")} · {session.Medium}" +
+                $" · generation {d.Generation}" +
+                (paged ? $" · page {d.Page + 1}/{d.PageCount}{(complete ? " · complete" : "")}" : "") +
                 (isNew ? " · new session" : ""));
         }
     }
@@ -198,7 +268,11 @@ public sealed class StreamTracker
         lock (_gate)
         {
             _motionFrames++;
-            _motionArrivals.Enqueue(now);
+            bool parted = m.PartCount > 1;
+            if (parted && m.Part >= m.PartCount)
+                _findings.Warn("part-index", $"motion part {m.Part} of {m.PartCount}", now);
+            // a tick counts once, however many parts carry it
+            if (m.Part == 0) _motionArrivals.Enqueue(now);
             TrimArrivals(now);
 
             var objects = m.Objects;
@@ -221,7 +295,7 @@ public sealed class StreamTracker
                     break;
                 }
             }
-            if (primaryIndex > 0)
+            if (primaryIndex > 0 && m.Part == 0)
                 _findings.Warn("primary-first",
                     $"motion frame lists primary '{objects[primaryIndex].Name}' at position {primaryIndex + 1}; the primary object goes first", now);
 
@@ -235,6 +309,18 @@ public sealed class StreamTracker
                     continue;
                 }
                 var (session, obj) = entry;
+
+                // channel values: only for the generation the tables describe;
+                // held back while that generation's pages are still arriving
+                bool current = m.Generation == session.Generation;
+                if (current)
+                    foreach (var cv in mo.Channels)
+                        ApplyValue(obj, cv, now, $"'{name}' motion", holdIfUnknown: !session.Complete);
+
+                // pose, dynamics and rate ride the first part listing the object
+                // in a tick; a later part carries channel values only
+                if (parted && obj.PoseTick == m.Timestamp) continue;
+                obj.PoseTick = m.Timestamp;
                 obj.RecordArrival(now);
                 obj.Timestamp = m.Timestamp;
 
@@ -260,9 +346,6 @@ public sealed class StreamTracker
                         null),
                     _ => null,
                 };
-
-                foreach (var cv in mo.Channels)
-                    ApplyValue(obj, cv, now, $"'{name}' motion");
 
                 double at = Uptime(now);
                 obj.History.Enqueue(new MotionSample(at, obj.Pose.Position, rot, yaw, pitch, roll,
@@ -334,6 +417,7 @@ public sealed class StreamTracker
                     s.Game, s.Start, s.SchemaVersion, s.Medium, s.Gravity,
                     s.AirDensity, s.Temperature, s.Pressure,
                     Seconds(now - s.LastDiscovery), s.DiscoveryCount,
+                    s.Generation, s.PageCount, s.PagesSeen.Count,
                     s.Objects.Values
                         .OrderByDescending(o => o.Primary)
                         .ThenBy(o => o.Name, StringComparer.Ordinal)
@@ -376,10 +460,12 @@ public sealed class StreamTracker
 
     // ---- Internals --------------------------------------------------------
 
-    void ApplyValue(ObjectState obj, ChannelValue.READER v, long now, string where)
+    void ApplyValue(ObjectState obj, ChannelValue.READER v, long now, string where, bool holdIfUnknown = false)
     {
         if (!obj.Channels.TryGetValue(v.Id, out var ch))
         {
+            // the id's page has not arrived yet: hold the value back
+            if (holdIfUnknown) return;
             _findings.Warn("undeclared-channel", $"{where} carries channel id {v.Id}, which '{obj.Name}' doesn't declare", now);
             return;
         }
@@ -405,6 +491,29 @@ public sealed class StreamTracker
                 ch.OutOfRange = false;
                 break;
         }
+    }
+
+    /// <summary>A page's descriptors (session values excluded: they may
+    /// change within a generation).</summary>
+    static string Signature(DiscoveryFrame.READER d)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var o in d.Objects)
+        {
+            sb.Append(o.Name).Append('\u001e').Append(o.Type).Append('\u001e').Append(o.TypeLabel)
+              .Append('\u001e').Append(o.Location).Append('\u001e').Append(o.Primary)
+              .Append('\u001e').Append(o.DrivePoints.Count).Append('\u001e').Append(o.ReferencePoint.Name);
+            foreach (var c in o.Channels)
+            {
+                sb.Append('\u001f').Append(c.Id).Append('|').Append(c.Name).Append('|').Append(c.Unit)
+                  .Append('|').Append(c.Description);
+                if (c.which == ChannelDescriptor.WHICH.Range)
+                    sb.Append('|').Append(c.Range.Min.ToString(CultureInfo.InvariantCulture))
+                      .Append('|').Append(c.Range.Max.ToString(CultureInfo.InvariantCulture));
+            }
+            sb.Append('\u001d');
+        }
+        return sb.ToString();
     }
 
     static string MotionLine(double timestamp, ObjectState obj)
@@ -452,6 +561,23 @@ public sealed class StreamTracker
         public long LastDiscovery;
         public long DiscoveryCount;
         public readonly Dictionary<string, ObjectState> Objects = new(StringComparer.Ordinal);
+
+        // the current descriptor-set generation and its pages
+        public uint Generation;
+        public bool HasGeneration;
+        public int PageCount = 1;
+        public readonly HashSet<int> PagesSeen = new();
+        public readonly Dictionary<int, string> PageSignatures = new();
+        public bool Complete => PagesSeen.Count >= PageCount;
+
+        /// <summary>Starts collecting a descriptor set afresh: pages, the
+        /// identity page and the declared channels of every object.</summary>
+        public void StartGeneration()
+        {
+            PagesSeen.Clear();
+            PageSignatures.Clear();
+            foreach (var o in Objects.Values) o.StartGeneration();
+        }
     }
 
     sealed class ObjectState(string name)
@@ -459,6 +585,12 @@ public sealed class StreamTracker
         const int RateWindow = 120;
         public string Name { get; } = name;
         public bool Declared;
+        /// <summary>Page this generation's identity fields came from; MaxValue = none yet.</summary>
+        public int IdentityPage = int.MaxValue;
+        /// <summary>Channel ids this generation declares, with the page declaring each.</summary>
+        readonly Dictionary<ushort, int> _declaredOn = new();
+        /// <summary>Timestamp of the tick whose pose was last taken (motion parts).</summary>
+        public double? PoseTick;
         public string Type = "", TypeLabel = "", Location = "";
         public bool Primary;
         public int DrivePointCount;
@@ -480,13 +612,27 @@ public sealed class StreamTracker
             while (_arrivals.Count > RateWindow) _arrivals.Dequeue();
         }
 
-        public void SetChannels(IReadOnlyList<ChannelDescriptor.READER> declared, out List<ushort> duplicates)
+        public void StartGeneration()
+        {
+            IdentityPage = int.MaxValue;
+            _declaredOn.Clear();
+        }
+
+        /// <summary>Adds or updates the channels one page declares. An id
+        /// declared twice in a generation (on one page or two) is reported.</summary>
+        public void MergeChannels(IReadOnlyList<ChannelDescriptor.READER> declared, int page, out List<ushort> duplicates)
         {
             duplicates = new List<ushort>();
-            var ids = new HashSet<ushort>();
+            var onThisPage = new HashSet<ushort>();
             foreach (var d in declared)
             {
-                if (!ids.Add(d.Id)) { duplicates.Add(d.Id); continue; }
+                if (!onThisPage.Add(d.Id) ||
+                    (_declaredOn.TryGetValue(d.Id, out var otherPage) && otherPage != page))
+                {
+                    duplicates.Add(d.Id);
+                    continue;
+                }
+                _declaredOn[d.Id] = page;
                 if (!Channels.TryGetValue(d.Id, out var ch))
                 {
                     ch = new ChannelState(d.Id);
@@ -499,8 +645,13 @@ public sealed class StreamTracker
                 ch.Min = ranged ? d.Range.Min : null;
                 ch.Max = ranged ? d.Range.Max : null;
             }
-            // channels dropped from the declaration go with it
-            foreach (var stale in Channels.Keys.Where(k => !ids.Contains(k)).ToList())
+        }
+
+        /// <summary>Once a generation is complete: channels it no longer
+        /// declares go with the declaration.</summary>
+        public void DropUndeclared()
+        {
+            foreach (var stale in Channels.Keys.Where(k => !_declaredOn.ContainsKey(k)).ToList())
                 Channels.Remove(stale);
         }
 

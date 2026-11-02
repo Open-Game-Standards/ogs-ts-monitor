@@ -25,7 +25,10 @@ build it, or to confirm a loader mod is working before you strap in.
 ## What it shows
 
 - **Senders and objects:** every discovery session on the network (game,
-  schema, environment, gravity) and its objects, with live motion rates.
+  schema, environment, gravity, discovery generation and pages) and its
+  objects, with live motion rates. Paged discovery and motion parts merge
+  into one picture: pages of a generation by object and channel id, a
+  tick's parts by timestamp.
 - **Attitude:** three views, one click apart. **Chase** shows the body axes
   from behind with heading removed, so pitch and roll read the same whichever
   way the object faces (the default for vehicles). **World** shows the body
@@ -55,6 +58,10 @@ rather than flooding the list.
 | `undeclared-object`, `undeclared-channel` | warning | motion only refers to what discovery declared |
 | `event-id-order` | warning | new event ids never go backwards (session-monotonic) |
 | `event-intensity` | warning | event intensity is within 0..1 (C-3) |
+| `datagram-budget` | warning | every datagram is at most 1,400 bytes (implementation-udp.md, Datagram budget) |
+| `generation-not-bumped` | warning | descriptors change only under a new discovery generation |
+| `page-index`, `part-index` | warning | a page or part index is below its count |
+| `generation-step` | note | a new generation is the previous one plus one (otherwise discovery was missed or the sender restarted) |
 | `motion-before-discovery` | note | motion arriving before anything to interpret it against |
 | `out-of-range` | note | a value outside its declared operating range |
 

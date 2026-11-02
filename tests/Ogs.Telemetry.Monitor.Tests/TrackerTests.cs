@@ -64,7 +64,12 @@ public class TrackerTests
         Assert.True(t.Ingest(Corpus.Datagram("event-impact")));
 
         var s = t.Snapshot();
-        Assert.True(s.Findings.Count == 0, string.Join("; ", s.Findings.Select(f => $"{f.Rule}: {f.Message}")));
+        // the corpus discoveries are independent vectors that share one
+        // session identity and generation 0, so as a "stream" they change
+        // descriptors without a new generation — expected here, and only here
+        var findings = s.Findings.Where(f => f.Rule != "generation-not-bumped").ToList();
+        Assert.True(findings.Count == 0, string.Join("; ", findings.Select(f => $"{f.Rule}: {f.Message}")));
+        Assert.Contains("generation-not-bumped", Rules(s, Severity.Warning));
         Assert.Equal(0, s.Stats.DecodeErrors);
         Assert.Single(s.Sessions); // all corpus discoveries share one identity
         Assert.Single(s.Events);
@@ -335,5 +340,140 @@ public class TrackerTests
         Assert.Equal(yaw, y, 2);
         Assert.Equal(pitch, p, 2);
         Assert.Equal(roll, r, 2);
+    }
+
+    // ---- Datagram budget: paged discovery, motion parts, generations ----
+
+    static string Findings(MonitorSnapshot s) =>
+        string.Join("; ", s.Findings.Select(f => $"{f.Rule}: {f.Message}"));
+
+    static ChannelDescriptor Ch(ushort id, string name, string unit = "m/s") =>
+        new() { Id = id, Name = name, Unit = unit, Description = "a channel with a realistic description" };
+
+    [Fact]
+    public void Corpus_paged_discovery_and_motion_parts_merge_cleanly()
+    {
+        var t = NewTracker();
+        foreach (var id in new[] { "discovery-paged-p0", "discovery-paged-p1", "motion-parts-p0", "motion-parts-p1" })
+            Assert.True(t.Ingest(Corpus.Datagram(id)), id);
+
+        var s = t.Snapshot();
+        Assert.True(s.Findings.Count == 0, Findings(s));
+        var session = s.Sessions.Single();
+        Assert.Equal(3u, session.Generation);
+        Assert.Equal(2, session.PageCount);
+        Assert.Equal(2, session.PagesSeen);
+
+        var car = session.Objects.Single();
+        Assert.Equal("conformance car", car.TypeLabel);    // identity from page 0, not page 1's defaults
+        Assert.True(car.Primary);
+        var byName = car.Channels.ToDictionary(c => c.Name);
+        Assert.Equal(3, byName.Count);                       // both pages' channels survive
+        Assert.Equal("4100", byName["engine.rpm"].Display);
+        Assert.Equal("Test Ring", byName["session.track"].Display);
+        Assert.Equal("12.5", byName["vehicle.speed"].Display);
+        Assert.Equal(4f, car.Pose!.Position.X);              // pose from part 0, not part 1's zeros
+        Assert.Equal(1, s.Stats.MotionFramesPerSecond);      // one tick, two parts
+    }
+
+    [Fact]
+    public void Pages_in_reverse_order_take_identity_from_the_lowest_page()
+    {
+        var t = NewTracker();
+        t.Ingest(Corpus.Datagram("discovery-paged-p1"));
+        Assert.DoesNotContain("no-primary", Rules(t.Snapshot()));  // incomplete: not judged yet
+        t.Ingest(Corpus.Datagram("discovery-paged-p0"));
+        var s = t.Snapshot();
+        Assert.True(s.Findings.Count == 0, Findings(s));
+        var car = s.Sessions.Single().Objects.Single();
+        Assert.True(car.Primary);
+        Assert.Equal("conformance car", car.TypeLabel);
+    }
+
+    [Fact]
+    public void Values_for_pages_not_yet_seen_are_held_back()
+    {
+        var t = NewTracker();
+        t.Ingest(Corpus.Datagram("discovery-paged-p0"));   // page 1 (channel 2) not here yet
+        t.Ingest(Corpus.Datagram("motion-parts-p0"));
+        t.Ingest(Corpus.Datagram("motion-parts-p1"));
+        Assert.DoesNotContain("undeclared-channel", Rules(t.Snapshot()));
+    }
+
+    [Fact]
+    public void Changed_descriptors_need_a_new_generation()
+    {
+        var t = NewTracker();
+        t.Ingest(Encode(FrameType.Discovery, Discovery(Car(channels: new[] { Ch(0, "a.speed") }))));
+        t.Ingest(Encode(FrameType.Discovery, Discovery(Car(channels: new[] { Ch(0, "renamed.speed") }))));
+        Assert.Contains("generation-not-bumped", Rules(t.Snapshot(), Severity.Warning));
+
+        var t2 = NewTracker();
+        t2.Ingest(Encode(FrameType.Discovery, Discovery(Car(channels: new[] { Ch(0, "a.speed"), Ch(1, "b.speed") }))));
+        var next = Discovery(Car(channels: new[] { Ch(0, "renamed.speed") }));
+        next.Generation = 1;
+        t2.Ingest(Encode(FrameType.Discovery, next));
+        var s = t2.Snapshot();
+        Assert.True(s.Findings.Count == 0, Findings(s));
+        Assert.Equal("renamed.speed", s.Sessions.Single().Objects.Single().Channels.Single().Name);
+    }
+
+    [Fact]
+    public void Generation_jump_is_noted()
+    {
+        var t = NewTracker();
+        t.Ingest(Encode(FrameType.Discovery, Discovery(Car())));
+        var later = Discovery(Car(channels: new[] { Ch(0, "x.speed") }));
+        later.Generation = 5;
+        t.Ingest(Encode(FrameType.Discovery, later));
+        Assert.Contains("generation-step", Rules(t.Snapshot(), Severity.Info));
+    }
+
+    [Fact]
+    public void Oversized_datagrams_break_the_budget_paged_ones_do_not()
+    {
+        var channels = Enumerable.Range(0, 120).Select(i => Ch((ushort)i, $"sim.channel{i:D3}")).ToArray();
+        var unpaged = NewTracker();
+        unpaged.Ingest(Encode(FrameType.Discovery, Discovery(Car(channels: channels))));
+        Assert.Contains("datagram-budget", Rules(unpaged.Snapshot(), Severity.Warning));
+
+        var paged = NewTracker();
+        var pages = DiscoveryPager.Paginate(() =>
+        {
+            var d = Discovery();
+            d.Objects = new List<ObjectDescriptor>();
+            return d;
+        }, new[] { Car(channels: channels) }, generation: 0);
+        Assert.True(pages.Count > 1);
+        foreach (var page in pages) paged.Ingest(Encode(FrameType.Discovery, page));
+        var s = paged.Snapshot();
+        Assert.True(s.Findings.Count == 0, Findings(s));
+        Assert.Equal(120, s.Sessions.Single().Objects.Single().Channels.Count);
+    }
+
+    [Fact]
+    public void Paged_channels_drop_only_once_the_generation_is_complete()
+    {
+        var t = NewTracker();
+        var first = Discovery(Car(channels: new[] { Ch(0, "a.speed"), Ch(1, "b.speed") }));
+        t.Ingest(Encode(FrameType.Discovery, first));
+
+        // generation 1 in two pages; channel 1 is no longer declared
+        DiscoveryFrame Page(ushort page, ObjectDescriptor obj)
+        {
+            var d = Discovery(obj);
+            d.Generation = 1; d.Page = page; d.PageCount = 2;
+            return d;
+        }
+        t.Ingest(Encode(FrameType.Discovery, Page(0, Car(channels: new[] { Ch(0, "a.speed") }))));
+        Assert.Equal(2, t.Snapshot().Sessions.Single().Objects.Single().Channels.Count); // not complete yet
+        t.Ingest(Encode(FrameType.Discovery, Page(1, new ObjectDescriptor
+        {
+            Name = "car", Channels = new List<ChannelDescriptor> { Ch(2, "c.speed") },
+        })));
+        var s = t.Snapshot();
+        Assert.True(s.Findings.Count == 0, Findings(s));
+        Assert.Equal(new[] { "a.speed", "c.speed" },
+            s.Sessions.Single().Objects.Single().Channels.Select(c => c.Name));
     }
 }

@@ -248,9 +248,11 @@ public sealed class MonitorViewModel : Observable
         }
         GameName = sv.GameName.Length == 0 ? "(unnamed game)" : sv.GameName;
         var started = DateTimeOffset.FromUnixTimeMilliseconds(sv.SessionStartUnixUs / 1000).ToLocalTime();
+        var pages = sv.PageCount > 1 ? $" · pages {sv.PagesSeen}/{sv.PageCount}" : "";
         SessionInfo = string.Create(CultureInfo.InvariantCulture,
             $"schema {sv.SchemaVersion} · {sv.Medium} · session from {started:HH:mm:ss} · " +
             $"discovery {sv.DiscoveryAgeSeconds:0.0} s ago ({sv.DiscoveryCount}) · " +
+            $"generation {sv.Generation}{pages} · " +
             $"air {sv.AirDensity:0.###} kg/m³ · {sv.Temperature:0.#} °C · {sv.Pressure:0} Pa");
     }
 
