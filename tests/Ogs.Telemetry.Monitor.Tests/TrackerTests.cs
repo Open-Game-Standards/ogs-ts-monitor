@@ -22,7 +22,7 @@ public class TrackerTests
         SchemaVersion = 1,
         GameName = "test",
         SessionStartUnixUs = 1,
-        Environment = { Gravity = 9.5f, AirDensity = 1.25f },
+        Environment = { Gravity = 9.5f },
         Objects = new List<ObjectDescriptor>(objects),
     };
 

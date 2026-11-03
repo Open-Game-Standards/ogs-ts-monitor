@@ -249,11 +249,14 @@ public sealed class MonitorViewModel : Observable
         GameName = SenderName(sv);
         var started = DateTimeOffset.FromUnixTimeMilliseconds(sv.SessionStartUnixUs / 1000).ToLocalTime();
         var pages = sv.PageCount > 1 ? $" · pages {sv.PagesSeen}/{sv.PageCount}" : "";
+        var air = sv.HasAtmosphere
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"air {sv.AirDensity:0.###} kg/m³ · {sv.Temperature:0.#} °C · {sv.Pressure:0} Pa")
+            : "no atmosphere declared";
         SessionInfo = string.Create(CultureInfo.InvariantCulture,
             $"{Where(sv)}schema {sv.SchemaVersion} · {sv.Medium} · session from {started:HH:mm:ss} · " +
             $"discovery {sv.DiscoveryAgeSeconds:0.0} s ago ({sv.DiscoveryCount}) · " +
-            $"generation {sv.Generation}{pages} · " +
-            $"air {sv.AirDensity:0.###} kg/m³ · {sv.Temperature:0.#} °C · {sv.Pressure:0} Pa");
+            $"generation {sv.Generation}{pages} · {air}");
     }
 
     /// <summary>Game name, then the instance label that tells several

@@ -30,7 +30,8 @@ public sealed record SessionView(
     IReadOnlyList<ObjectView> Objects,
     string InstanceLabel = "",
     string Host = "",
-    string Source = "");
+    string Source = "",
+    bool HasAtmosphere = false);
 
 public sealed record ObjectView(
     string Key,

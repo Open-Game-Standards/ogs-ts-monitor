@@ -212,9 +212,12 @@ public sealed class StreamTracker
             session.SchemaVersion = d.SchemaVersion;
             var env = d.Environment;
             session.Medium = env.Medium.ToString();
-            session.AirDensity = env.AirDensity;
-            session.Temperature = env.Temperature;
-            session.Pressure = env.Pressure;
+            // the atmosphere is optional: absent means the game models none
+            session.HasAtmosphere = env.Atmosphere.which == CapnpGen.Environment.atmosphere.WHICH.Known;
+            var air = env.Atmosphere.Known;
+            session.AirDensity = session.HasAtmosphere ? air.AirDensity : 0;
+            session.Temperature = session.HasAtmosphere ? air.Temperature : 0;
+            session.Pressure = session.HasAtmosphere ? air.Pressure : 0;
             session.Gravity = Ogs.Telemetry.Gravity.Session(env);
 
             string who = session.Who;
@@ -485,7 +488,8 @@ public sealed class StreamTracker
                         .Select(o => o.View(s, now, Seconds))
                         .ToList(),
                     s.InstanceLabel, s.Host,
-                    ReferenceEquals(s.Source, Unattributed) ? "" : s.Source.ToString()))
+                    ReferenceEquals(s.Source, Unattributed) ? "" : s.Source.ToString(),
+                    s.HasAtmosphere))
                 .ToList();
             var events = _events.Reverse()
                 .Select(ev => new EventView(ev.Id, ev.Name, ev.Intensity, ev.Duration, ev.Direction,
@@ -654,6 +658,7 @@ public sealed class StreamTracker
         public ushort SchemaVersion;
         public string Medium = "";
         public float AirDensity, Temperature, Pressure;
+        public bool HasAtmosphere;
         public Vector3 Gravity;
         public long LastDiscovery;
         public long DiscoveryCount;
