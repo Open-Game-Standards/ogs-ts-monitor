@@ -285,6 +285,8 @@ public sealed class StreamTracker
                         $"'{name}' declares channel id {id} more than once (its values can't be attributed)", now);
                 foreach (var v in o.Values)
                     ApplyValue(obj, v, now, $"'{name}' discovery value");
+                foreach (var t in o.Texts)
+                    ApplyText(obj, t, now, $"'{name}' discovery value");
             }
 
             bool complete = session.Complete;
@@ -366,8 +368,12 @@ public sealed class StreamTracker
                 // held back while that generation's pages are still arriving
                 bool current = m.Generation == session.Generation;
                 if (current)
+                {
                     foreach (var cv in mo.Channels)
                         ApplyValue(obj, cv, now, $"'{name}' motion", holdIfUnknown: !session.Complete);
+                    foreach (var tv in mo.Texts)
+                        ApplyText(obj, tv, now, $"'{name}' motion", holdIfUnknown: !session.Complete);
+                }
 
                 // pose, dynamics and rate ride the first part listing the object
                 // in a tick; a later part carries channel values only
@@ -530,7 +536,7 @@ public sealed class StreamTracker
         {
             ChannelType.number => v.which == ChannelValue.WHICH.Number,
             ChannelType.boolean => v.which == ChannelValue.WHICH.Boolean,
-            ChannelType.text => v.which == ChannelValue.WHICH.Text,
+            ChannelType.text => false, // text rides TextValue
             _ => true,
         };
         if (!matches)
@@ -556,12 +562,26 @@ public sealed class StreamTracker
                 ch.Display = v.Boolean ? "true" : "false";
                 ch.OutOfRange = false;
                 break;
-            case ChannelValue.WHICH.Text:
-                ch.Number = null;
-                ch.Display = v.Text ?? "";
-                ch.OutOfRange = false;
-                break;
         }
+    }
+
+    void ApplyText(ObjectState obj, TextValue.READER t, long now, string where, bool holdIfUnknown = false)
+    {
+        if (!obj.Channels.TryGetValue(t.Id, out var ch))
+        {
+            if (holdIfUnknown) return;
+            _findings.Warn("undeclared-channel", $"{where} carries text for channel id {t.Id}, which '{obj.Name}' doesn't declare", now);
+            return;
+        }
+        if (ch.Type is ChannelType.number or ChannelType.boolean)
+        {
+            _findings.Warn("channel-type", $"{where} sends {ch.Name} as text, but it is declared {ch.Type}", now);
+            return;
+        }
+        ch.Updated = now;
+        ch.Number = null;
+        ch.Display = t.Text ?? "";
+        ch.OutOfRange = false;
     }
 
     /// <summary>A page's descriptors (session values excluded: they may
