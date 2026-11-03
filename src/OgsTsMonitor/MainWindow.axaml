@@ -36,6 +36,10 @@
                   Width="220" IsEnabled="{Binding CanEditEndpoint}"/>
         <Button Content="{Binding ListenLabel}" Click="OnListen" Classes="accent" MinWidth="72"
                 HorizontalContentAlignment="Center"/>
+        <Button Content="{Binding RecordLabel}" Click="OnRecord"
+                ToolTip.Tip="Record everything this monitor receives to an .ogsrec file, to replay into rigs and tools later."/>
+        <Button Content="{Binding PlayLabel}" Click="OnPlay"
+                ToolTip.Tip="Play an .ogsrec recording in this monitor at its original pace. Nothing is sent on the network."/>
         <Button Content="Clear" Click="OnClear"/>
       </StackPanel>
 

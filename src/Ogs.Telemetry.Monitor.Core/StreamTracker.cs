@@ -207,6 +207,7 @@ public sealed class StreamTracker
             }
             session!.InstanceLabel = d.InstanceLabel ?? "";
             session.Host = d.Host ?? "";
+            session.DeclaredMotionRateHz = d.MotionRateHz;
             session.DiscoveryCount++;
             session.LastDiscovery = now;
             session.SchemaVersion = d.SchemaVersion;
@@ -489,7 +490,7 @@ public sealed class StreamTracker
                         .ToList(),
                     s.InstanceLabel, s.Host,
                     ReferenceEquals(s.Source, Unattributed) ? "" : s.Source.ToString(),
-                    s.HasAtmosphere))
+                    s.HasAtmosphere, s.DeclaredMotionRateHz))
                 .ToList();
             var events = _events.Reverse()
                 .Select(ev => new EventView(ev.Id, ev.Name, ev.Intensity, ev.Duration, ev.Direction,
@@ -659,6 +660,8 @@ public sealed class StreamTracker
         public string Medium = "";
         public float AirDensity, Temperature, Pressure;
         public bool HasAtmosphere;
+        /// <summary>DiscoveryFrame.motionRateHz; 0 = not declared.</summary>
+        public float DeclaredMotionRateHz;
         public Vector3 Gravity;
         public long LastDiscovery;
         public long DiscoveryCount;

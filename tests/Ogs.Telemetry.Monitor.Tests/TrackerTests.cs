@@ -540,4 +540,30 @@ public class TrackerTests
         Assert.Equal(new[] { "a.speed", "c.speed" },
             s.Sessions.Single().Objects.Single().Channels.Select(c => c.Name));
     }
+
+    [Fact]
+    public void Every_Negative_Vector_Ingests_Without_Throwing()
+    {
+        // each malformed datagram after a valid session, and the tracker still works afterwards
+        var negatives = Corpus.Negative().ToList();
+        Assert.True(negatives.Count >= 14);
+        foreach (var (id, datagram) in negatives)
+        {
+            var t = NewTracker();
+            t.Ingest(Corpus.Datagram("discovery-channels"));
+            var ex = Record.Exception(() => { t.Ingest(datagram); t.Snapshot(); });
+            Assert.True(ex is null, $"{id}: {ex}");
+            Assert.True(t.Ingest(Corpus.Datagram("discovery-channels")), id);
+        }
+    }
+
+    [Fact]
+    public void Declared_Motion_Rate_Reaches_The_Session_View()
+    {
+        var t = NewTracker();
+        var d = Discovery(Car());
+        d.MotionRateHz = 50;
+        t.Ingest(Encode(FrameType.Discovery, d));
+        Assert.Equal(50f, t.Snapshot().Sessions.Single().DeclaredMotionRateHz);
+    }
 }

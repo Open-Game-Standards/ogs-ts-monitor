@@ -85,6 +85,16 @@ The isolated demo has been checked on Windows. Linux often ships with
 multicast disabled on the loopback interface; if the demo shows nothing
 there, use `--demo-lan` on a network with no rig attached.
 
+## Recording and playback
+
+**Record** saves everything the monitor receives (the live stream and the
+demo alike) to an `.ogsrec` file, the standard's recording format
+([recording.md](https://github.com/Open-Game-Standards/OGS-Telemetry-Standard/blob/main/recording.md)):
+attach one to a bug report, or replay it into a rig with GameConn.
+**Play recording** shows a recording in this monitor at its original pace,
+each recorded sender as its own session. Playback stays inside the
+monitor: nothing is sent on the network, so no rig moves.
+
 ## Running
 
 Download a build from
@@ -104,6 +114,9 @@ allow it, since OGS-TS arrives as multicast on your LAN.
 ```
 OgsTsMonitor [--group 239.255.17.17] [--port 40123] [--demo | --demo-lan]
 ```
+
+`--group` also takes the standard's IPv6 group, `ff12::4f47:5453`; IPv6
+joins on the default interface.
 
 On a machine with several network interfaces, pick the one facing your LAN
 in **Interface**: the OS default route can join the group somewhere with no

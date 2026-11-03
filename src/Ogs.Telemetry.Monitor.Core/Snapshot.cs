@@ -31,7 +31,8 @@ public sealed record SessionView(
     string InstanceLabel = "",
     string Host = "",
     string Source = "",
-    bool HasAtmosphere = false);
+    bool HasAtmosphere = false,
+    float DeclaredMotionRateHz = 0);
 
 public sealed record ObjectView(
     string Key,

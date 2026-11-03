@@ -253,10 +253,13 @@ public sealed class MonitorViewModel : Observable
             ? string.Create(CultureInfo.InvariantCulture,
                 $"air {sv.AirDensity:0.###} kg/m³ · {sv.Temperature:0.#} °C · {sv.Pressure:0} Pa")
             : "no atmosphere declared";
+        var rate = sv.DeclaredMotionRateHz > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"declares {sv.DeclaredMotionRateHz:0.#} Hz · ")
+            : "";
         SessionInfo = string.Create(CultureInfo.InvariantCulture,
             $"{Where(sv)}schema {sv.SchemaVersion} · {sv.Medium} · session from {started:HH:mm:ss} · " +
             $"discovery {sv.DiscoveryAgeSeconds:0.0} s ago ({sv.DiscoveryCount}) · " +
-            $"generation {sv.Generation}{pages} · {air}");
+            $"generation {sv.Generation}{pages} · {rate}{air}");
     }
 
     /// <summary>Game name, then the instance label that tells several

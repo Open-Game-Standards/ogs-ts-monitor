@@ -69,6 +69,91 @@ public sealed class MainWindowViewModel : Observable, IDisposable
     }
     public string DemoLabel => DemoRunning ? "Stop demo sender" : "Start demo sender";
 
+    // ---- recording (recording.md) ----
+
+    RecordingWriter? _recorder;
+    string? _recordingPath;
+    CancellationTokenSource? _playback;
+
+    public bool IsRecording => _recorder is not null;
+    public string RecordLabel => IsRecording ? "Stop recording" : "Record";
+    public bool IsPlaying => _playback is not null;
+    public string PlayLabel => IsPlaying ? "Stop playback" : "Play recording";
+
+    void OnRaw(IPEndPoint source, ReadOnlyMemory<byte> datagram) => _recorder?.Write(source, datagram.Span);
+
+    /// <summary>Starts recording every datagram this monitor receives to <paramref name="path"/>.</summary>
+    public void StartRecording(string path)
+    {
+        if (_recorder is not null) return;
+        try
+        {
+            _recorder = RecordingWriter.Create(path);
+            _recordingPath = path;
+            Report($"Recording to {Path.GetFileName(path)}.", error: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Report($"Couldn't record to {path}: {ex.Message}", error: true);
+        }
+        RaiseRecording();
+    }
+
+    public void StopRecording()
+    {
+        if (_recorder is null) return;
+        var r = _recorder;
+        _recorder = null;
+        r.Dispose();
+        Report($"Recording saved: {Path.GetFileName(_recordingPath)}.", error: false);
+        RaiseRecording();
+    }
+
+    /// <summary>Plays a recording into this monitor's views at its original
+    /// pace, keeping the recorded senders apart. Nothing is sent on the
+    /// network, so no rig moves.</summary>
+    public async Task PlayRecordingAsync(string path)
+    {
+        if (_playback is not null) return;
+        List<RecordedDatagram> records;
+        try { records = RecordingReader.Read(path).Records; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            Report($"Couldn't open {Path.GetFileName(path)}: {ex.Message}", error: true);
+            return;
+        }
+        var cts = _playback = new CancellationTokenSource();
+        RaisePlayback();
+        Report($"Playing {Path.GetFileName(path)} ({records.Count} datagrams) in this monitor only.", error: false);
+        try
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            long first = records.Count > 0 ? records[0].ArrivalMicros : 0;
+            foreach (var r in records)
+            {
+                double wait = (r.ArrivalMicros - first) / 1e6 - clock.Elapsed.TotalSeconds;
+                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait), cts.Token);
+                _tracker.Ingest(r.Datagram, r.Source);
+            }
+            Report($"Finished playing {Path.GetFileName(path)}.", error: false);
+        }
+        catch (OperationCanceledException)
+        {
+            Report("Playback stopped.", error: false);
+        }
+        finally
+        {
+            cts.Dispose();
+            _playback = null;
+            RaisePlayback();
+        }
+    }
+
+    public void StopPlayback() => _playback?.Cancel();
+
+    void RaiseRecording() { Raise(nameof(IsRecording)); Raise(nameof(RecordLabel)); }
+    void RaisePlayback() { Raise(nameof(IsPlaying)); Raise(nameof(PlayLabel)); }
+
     string _status = "";
     public string Status { get => _status; private set => Set(ref _status, value); }
 
@@ -82,10 +167,9 @@ public sealed class MainWindowViewModel : Observable, IDisposable
 
     void Start()
     {
-        if (!IPAddress.TryParse(Group, out var group) || group.AddressFamily != AddressFamily.InterNetwork
-            || !IsMulticast(group))
+        if (!IPAddress.TryParse(Group, out var group) || !IsMulticast(group))
         {
-            Report($"'{Group}' is not an IPv4 multicast address (224.0.0.0 – 239.255.255.255).", error: true);
+            Report($"'{Group}' is not a multicast address (IPv4 224.0.0.0 – 239.255.255.255, or IPv6 such as {TelemetrySender.DefaultGroupV6}).", error: true);
             return;
         }
         if (!int.TryParse(Port, out int port) || port is < 1 or > 65535)
@@ -95,8 +179,11 @@ public sealed class MainWindowViewModel : Observable, IDisposable
         }
         try
         {
-            _receiver = new TelemetryReceiver(Group, port, SelectedInterface.Address);
+            // the interface list holds IPv4 addresses: an IPv6 group joins on the default interface
+            var nic = group.AddressFamily == AddressFamily.InterNetworkV6 ? null : SelectedInterface.Address;
+            _receiver = new TelemetryReceiver(Group, port, nic);
             _tracker.Attach(_receiver);
+            _receiver.RawDatagramReceived += OnRaw;
             _receiver.Start();
             IsListening = true;
             Report($"Listening on {Group}:{port} via {SelectedInterface.Label}.", error: false);
@@ -144,6 +231,7 @@ public sealed class MainWindowViewModel : Observable, IDisposable
                 // standard port never sees a demo car
                 _demoReceiver ??= new TelemetryReceiver(Group, DemoPort, IPAddress.Loopback);
                 _tracker.Attach(_demoReceiver);
+                _demoReceiver.RawDatagramReceived += OnRaw;
                 _demoReceiver.Start();
                 _demo = new DemoSender(Group, DemoPort, lan: false);
                 Report($"Demo sender running on this machine only (loopback, port {DemoPort}).", error: false);
@@ -168,6 +256,7 @@ public sealed class MainWindowViewModel : Observable, IDisposable
 
     static bool IsMulticast(IPAddress a)
     {
+        if (a.AddressFamily == AddressFamily.InterNetworkV6) return a.IsIPv6Multicast;
         byte first = a.GetAddressBytes()[0];
         return first is >= 224 and <= 239;
     }
@@ -198,6 +287,8 @@ public sealed class MainWindowViewModel : Observable, IDisposable
 
     public void Dispose()
     {
+        _playback?.Cancel();
+        _recorder?.Dispose();
         _demo?.Dispose();
         _demoReceiver?.Dispose();
         _receiver?.Dispose();

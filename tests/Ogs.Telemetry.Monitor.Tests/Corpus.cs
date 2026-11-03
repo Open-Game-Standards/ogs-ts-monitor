@@ -11,6 +11,13 @@ static class Corpus
         Convert.FromHexString(string.Concat(
             File.ReadAllText(Path.Combine(Dir.Value, "vectors", id + ".hex")).Where(c => !char.IsWhiteSpace(c))));
 
+    /// <summary>Every negative-corpus vector (conformance/negative): id and datagram.</summary>
+    public static IEnumerable<(string Id, byte[] Datagram)> Negative() =>
+        Directory.GetFiles(Path.Combine(Dir.Value, "negative", "vectors"), "*.hex")
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .Select(f => (Path.GetFileNameWithoutExtension(f),
+                Convert.FromHexString(string.Concat(File.ReadAllText(f).Where(c => !char.IsWhiteSpace(c))))));
+
     static string Find()
     {
         var env = Environment.GetEnvironmentVariable("OGS_TS_CONFORMANCE");
