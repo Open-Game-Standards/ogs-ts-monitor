@@ -120,8 +120,8 @@ OgsTsMonitor [--group 239.255.17.17] [--port 40123] [--demo | --demo-lan]
 joins on the default interface.
 
 On a machine with several network interfaces, pick the one facing your LAN
-in **Interface**: the OS default route can join the group somewhere with no
-path to the sender.
+in **Interface**: the default route's interface may have no path to the
+sender. The monitor also joins on loopback, to hear senders on this machine.
 
 ## Building
 
