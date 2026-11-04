@@ -226,15 +226,16 @@ public sealed class MainWindowViewModel : Observable, IDisposable
             }
             else
             {
-                // isolated: loopback only, on its own port, with its own
-                // receiver feeding this monitor; a local GameConn on the
-                // standard port never sees a demo car
-                _demoReceiver ??= new TelemetryReceiver(Group, DemoPort, IPAddress.Loopback);
+                // isolated: loopback only, on its own group and port, with
+                // its own receiver feeding this monitor; a local GameConn
+                // never sees a demo car, and a game streaming on the group
+                // being monitored isn't disturbed
+                _demoReceiver ??= new TelemetryReceiver(TelemetryReceiver.LoopbackGroup, DemoPort, IPAddress.Loopback);
                 _tracker.Attach(_demoReceiver);
                 _demoReceiver.RawDatagramReceived += OnRaw;
                 _demoReceiver.Start();
-                _demo = new DemoSender(Group, DemoPort, lan: false);
-                Report($"Demo sender running on this machine only (loopback, port {DemoPort}).", error: false);
+                _demo = new DemoSender(TelemetryReceiver.LoopbackGroup, DemoPort, lan: false);
+                Report($"Demo sender running on this machine only (loopback, {TelemetryReceiver.LoopbackGroup}:{DemoPort}).", error: false);
             }
             DemoRunning = true;
         }

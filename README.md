@@ -77,8 +77,9 @@ schema, and are tested against the standard's conformance corpus.
 
 **Start demo sender** publishes a demo car with body dynamics, channels and
 impact events. It is isolated: it sends over the loopback interface on its
-own port (40199) with its own receiver, so nothing else on this machine or
-your network sees it — a GameConn instance driving a motion rig won't move.
+own group and port (239.255.17.99:40199) with its own receiver, so nothing
+else on this machine or your network sees it — a GameConn instance driving a
+motion rig won't move — and a game streaming alongside it isn't disturbed.
 To send the demo on your network as a real sender, start with `--demo-lan`.
 
 The isolated demo has been checked on Windows. Linux often ships with
