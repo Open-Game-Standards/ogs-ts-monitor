@@ -566,4 +566,69 @@ public class TrackerTests
         t.Ingest(Encode(FrameType.Discovery, d));
         Assert.Equal(50f, t.Snapshot().Sessions.Single().DeclaredMotionRateHz);
     }
+
+    // ---- Declared motion rate (implementation-udp.md § Send cadence) ------
+
+    void SendTicks(StreamTracker t, double seconds, double hz, bool parts = false)
+    {
+        int n = (int)(seconds * hz);
+        for (int i = 0; i <= n; i++)
+        {
+            double ts = i / hz;
+            var m = Motion(Pose("car"));
+            m.Timestamp = ts;
+            if (parts)
+            {
+                m.Part = 0; m.PartCount = 2;
+                t.Ingest(Encode(FrameType.Motion, m));
+                var second = Motion(Pose("car"));
+                second.Timestamp = ts; second.Part = 1; second.PartCount = 2;
+                t.Ingest(Encode(FrameType.Motion, second));
+            }
+            else t.Ingest(Encode(FrameType.Motion, m));
+        }
+    }
+
+    StreamTracker RateTracker(float declared)
+    {
+        var t = NewTracker();
+        var d = Discovery(Car());
+        d.MotionRateHz = declared;
+        t.Ingest(Encode(FrameType.Discovery, d));
+        return t;
+    }
+
+    [Fact]
+    public void Motion_at_the_declared_rate_raises_no_rate_finding()
+    {
+        var t = RateTracker(30);
+        SendTicks(t, 6, 30);
+        Assert.DoesNotContain("motion-rate", Rules(t.Snapshot()));
+    }
+
+    [Fact]
+    public void Motion_below_the_declared_rate_is_reported()
+    {
+        var t = RateTracker(30);
+        SendTicks(t, 6, 23);
+        var f = Assert.Single(t.Snapshot().Findings, f => f.Rule == "motion-rate");
+        Assert.Contains("declares motionRateHz 30", f.Message);
+        Assert.Contains("23 Hz", f.Message);
+    }
+
+    [Fact]
+    public void Motion_parts_count_as_one_tick_for_the_rate()
+    {
+        var t = RateTracker(30);
+        SendTicks(t, 6, 30, parts: true);
+        Assert.DoesNotContain("motion-rate", Rules(t.Snapshot()));
+    }
+
+    [Fact]
+    public void An_undeclared_rate_is_not_checked()
+    {
+        var t = RateTracker(0);
+        SendTicks(t, 6, 23);
+        Assert.DoesNotContain("motion-rate", Rules(t.Snapshot()));
+    }
 }

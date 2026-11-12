@@ -17,6 +17,7 @@ namespace Ogs.Telemetry.Monitor;
 /// <item><c>quaternion-norm</c>: orientation is not a unit quaternion.</item>
 /// <item><c>primary-first</c>: motion lists the primary object after another.</item>
 /// <item><c>undeclared-object</c>, <c>undeclared-channel</c>: motion refers to names/ids discovery never declared.</item>
+/// <item><c>motion-rate</c>: achieved motion rate (on frame timestamps) is more than 10 % from the declared <c>motionRateHz</c>.</item>
 /// <item><c>event-id-order</c>: a new event id below one already seen (ids are session-monotonic).</item>
 /// <item><c>event-intensity</c>: intensity outside 0..1 (C-3).</item>
 /// <item><c>motion-before-discovery</c> (info): nothing to interpret motion against yet.</item>

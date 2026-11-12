@@ -57,6 +57,7 @@ rather than flooding the list.
 | `duplicate-object`, `duplicate-channel-id` | warning | names and ids identify one thing |
 | `quaternion-norm` | warning | orientation is a unit quaternion |
 | `primary-first` | warning | motion lists the primary object first |
+| `motion-rate` | warning | the achieved motion rate (from frame timestamps, over a few seconds) is within 10 % of the declared `motionRateHz` (implementation-udp.md, Send cadence) |
 | `undeclared-object`, `undeclared-channel` | warning | motion only refers to what discovery declared |
 | `event-id-order` | warning | new event ids never go backwards (session-monotonic) |
 | `event-intensity` | warning | event intensity is within 0..1 (C-3) |
@@ -169,3 +170,9 @@ var view = new MonitorView { DataContext = new MonitorViewModel(tracker) };
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Faults
+
+A fault on the UI thread (a layout pass that cannot arrange a panel after an
+unusual resize, say) does not end the monitor: the stream keeps being tracked
+and the fault is appended to `%LOCALAPPDATA%\OgsTsMonitor\faults.log`.

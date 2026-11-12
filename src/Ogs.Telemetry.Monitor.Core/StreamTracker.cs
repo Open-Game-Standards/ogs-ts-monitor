@@ -129,6 +129,32 @@ public sealed class StreamTracker
         }
     }
 
+    /// <summary>Tolerance on the declared motion rate before it is reported.</summary>
+    public const double MotionRateTolerance = 0.10;
+    /// <summary>Sender time one rate measurement spans, seconds.</summary>
+    const double MotionRateWindow = 3.0;
+    const double MotionRateMinSpan = 2.0;
+
+    /// <summary>The achieved motion rate must match the declared
+    /// <c>motionRateHz</c> (implementation-udp.md § Send cadence). Measured
+    /// on the frames' own timestamps, so network jitter does not matter:
+    /// ticks per second of sender time over the last few seconds. A
+    /// timestamp that goes backwards restarts the measurement.</summary>
+    void CheckMotionRate(Session session, double timestamp, long now)
+    {
+        var ticks = session.TickTimes;
+        if (ticks.Count > 0 && timestamp < ticks.Last!.Value) ticks.Clear();
+        ticks.AddLast(timestamp);
+        while (ticks.Count > 2 && timestamp - ticks.First!.Value > MotionRateWindow) ticks.RemoveFirst();
+        double span = timestamp - ticks.First!.Value;
+        if (session.DeclaredMotionRateHz <= 0 || span < MotionRateMinSpan || ticks.Count < 10) return;
+        double rate = (ticks.Count - 1) / span;
+        double declared = session.DeclaredMotionRateHz;
+        if (Math.Abs(rate - declared) > MotionRateTolerance * declared)
+            _findings.Warn("motion-rate",
+                $"{session.Who} declares motionRateHz {declared:0.#} but sends about {rate:0} Hz", now);
+    }
+
     /// <summary>Checks one datagram's size against the 1,400-byte budget
     /// (a MUST). <see cref="Attach"/> wires it to the receiver;
     /// <see cref="Ingest"/> calls it itself.</summary>
@@ -343,6 +369,8 @@ public sealed class StreamTracker
                     $"motion from {Who(src)} arriving before its discovery: channels and objects can't be identified yet", now);
                 return;
             }
+
+            if (m.Part == 0) CheckMotionRate(session, m.Timestamp, now);
 
             // Primary first: if the frame carries a declared primary object it
             // must lead the list.
@@ -662,6 +690,8 @@ public sealed class StreamTracker
         public bool HasAtmosphere;
         /// <summary>DiscoveryFrame.motionRateHz; 0 = not declared.</summary>
         public float DeclaredMotionRateHz;
+        /// <summary>Sender timestamps of the recent motion ticks.</summary>
+        public readonly LinkedList<double> TickTimes = new();
         public Vector3 Gravity;
         public long LastDiscovery;
         public long DiscoveryCount;
