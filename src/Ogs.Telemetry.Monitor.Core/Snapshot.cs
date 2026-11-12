@@ -35,7 +35,11 @@ public sealed record SessionView(
     float DeclaredMotionRateHz = 0,
     double MotionLossFraction = 0,
     int MotionFramesLost = 0,
-    double MotionLossSpanSeconds = 0);
+    double MotionLossSpanSeconds = 0,
+    double? JitterP50Ms = null,
+    double? JitterP95Ms = null,
+    double? JitterMaxMs = null,
+    double? ApparentDelayMs = null);
 
 public sealed record ObjectView(
     string Key,

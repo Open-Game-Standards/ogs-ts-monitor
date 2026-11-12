@@ -260,10 +260,15 @@ public sealed class MonitorViewModel : Observable
             ? string.Create(CultureInfo.InvariantCulture,
                 $"motion loss {sv.MotionLossFraction:P0} ({sv.MotionFramesLost} frames in {sv.MotionLossSpanSeconds:0} s) · ")
             : "";
+        var jitter = sv.JitterP95Ms is { } p95
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"delay variation {sv.JitterP50Ms:0} ms typical, {p95:0} ms p95, {sv.JitterMaxMs:0} ms max" +
+                $" · apparent delay {sv.ApparentDelayMs:0} ms (assumes synced clocks) · ")
+            : "";
         SessionInfo = string.Create(CultureInfo.InvariantCulture,
             $"{Where(sv)}schema {sv.SchemaVersion} · {sv.Medium} · session from {started:HH:mm:ss} · " +
             $"discovery {sv.DiscoveryAgeSeconds:0.0} s ago ({sv.DiscoveryCount}) · " +
-            $"generation {sv.Generation}{pages} · {rate}{loss}{air}");
+            $"generation {sv.Generation}{pages} · {rate}{loss}{jitter}{air}");
     }
 
     /// <summary>Game name, then the instance label that tells several

@@ -59,6 +59,7 @@ rather than flooding the list.
 | `primary-first` | warning | motion lists the primary object first |
 | `motion-rate` | warning | the achieved motion rate (from frame timestamps, over a few seconds) is within 10 % of the declared `motionRateHz` (implementation-udp.md, Send cadence) |
 | `motion-gap` | warning | more than 5 % of the declared motion ticks are missing over the last 10 s, estimated from gaps in the frames' own timestamps (a refused send and a dropped packet look the same to a receiver); the live figure is on the session line |
+| `motion-jitter` | warning | motion arrives with a 95th-percentile delay variation under 50 ms over the last 10 s (arrival minus sender timestamp, above the window's lowest value, so no clock sync is needed); the session line also shows an apparent one-way delay that is right only when sender and monitor clocks agree |
 | `undeclared-object`, `undeclared-channel` | warning | motion only refers to what discovery declared |
 | `event-id-order` | warning | new event ids never go backwards (session-monotonic) |
 | `event-intensity` | warning | event intensity is within 0..1 (C-3) |

@@ -694,4 +694,67 @@ public class TrackerTests
         Assert.Equal(0, s.Sessions.Single().MotionFramesLost);
         Assert.DoesNotContain("motion-gap", Rules(s));
     }
+
+    // ---- Delay variation and apparent delay -------------------------------
+
+    /// <summary>Feeds 30 Hz motion for <paramref name="seconds"/> with each frame
+    /// arriving <c>offset + extra(ts)</c> after its sender timestamp. The
+    /// session anchors at wall-clock 1 µs and the wall clock is the arrival
+    /// clock, so the apparent delay equals the arrival offset.</summary>
+    StreamTracker DelayTracker(double seconds, double offset, Func<double, double> extra)
+    {
+        var t = RateTracker(30);
+        t.WallClockUnixUs = () => 1 + _now;
+        for (int i = 0; i <= (int)(seconds * 30); i++)
+        {
+            double ts = i / 30.0;
+            _now = (long)((ts + offset + extra(ts)) * 1_000_000);
+            var m = Motion(Pose("car"));
+            m.Timestamp = ts;
+            t.Ingest(Encode(FrameType.Motion, m));
+        }
+        return t;
+    }
+
+    [Fact]
+    public void A_steady_stream_has_no_delay_variation()
+    {
+        var t = DelayTracker(6, 0.004, _ => 0);
+        var s = t.Snapshot();
+        var sv = s.Sessions.Single();
+        Assert.InRange(sv.JitterP95Ms!.Value, 0, 1);
+        Assert.InRange(sv.ApparentDelayMs!.Value, 3.5, 4.5); // the 4 ms arrival offset
+        Assert.DoesNotContain("motion-jitter", Rules(s));
+    }
+
+    [Fact]
+    public void A_constant_clock_offset_is_not_jitter()
+    {
+        // arrival clock 5 s ahead of the sender's: delay variation must not see it
+        var t = DelayTracker(6, 5.0, _ => 0);
+        var s = t.Snapshot();
+        Assert.InRange(s.Sessions.Single().JitterMaxMs!.Value, 0, 1);
+        Assert.DoesNotContain("motion-jitter", Rules(s));
+    }
+
+    [Fact]
+    public void Swinging_delay_is_measured_and_flagged()
+    {
+        // delay swings 0..80 ms, slowly enough that frames stay in order
+        var t = DelayTracker(6, 0.004, ts => 0.08 * Math.Pow(Math.Sin(Math.PI * ts), 2));
+        var s = t.Snapshot();
+        var sv = s.Sessions.Single();
+        Assert.InRange(sv.JitterMaxMs!.Value, 70, 85);
+        Assert.True(sv.JitterP95Ms > 50, $"p95 {sv.JitterP95Ms}");
+        Assert.Contains("motion-jitter", Rules(s));
+    }
+
+    [Fact]
+    public void Delay_is_not_reported_before_there_is_enough_to_judge()
+    {
+        var t = DelayTracker(1, 0.004, _ => 0);
+        var sv = t.Snapshot().Sessions.Single();
+        Assert.Null(sv.JitterP95Ms);
+        Assert.Null(sv.ApparentDelayMs);
+    }
 }

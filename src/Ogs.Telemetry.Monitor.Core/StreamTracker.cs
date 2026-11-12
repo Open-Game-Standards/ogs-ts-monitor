@@ -83,6 +83,11 @@ public sealed class StreamTracker
         _findings = new Conformance(this);
     }
 
+    /// <summary>Wall clock in Unix microseconds, for the apparent one-way delay
+    /// (sender anchor + timestamp against this). Replaceable for tests.</summary>
+    public Func<long> WallClockUnixUs { get; set; } = () =>
+        (DateTime.UtcNow.Ticks - DateTime.UnixEpoch.Ticks) / 10;
+
     double Seconds(long ticks) => ticks * _tickSeconds;
     double Uptime(long now) => Seconds(now - _start);
 
@@ -143,8 +148,9 @@ public sealed class StreamTracker
     void CheckMotionRate(Session session, double timestamp, long now)
     {
         var ticks = session.TickTimes;
-        if (ticks.Count > 0 && timestamp < ticks.Last!.Value) { ticks.Clear(); session.Loss.Clear(); }
+        if (ticks.Count > 0 && timestamp < ticks.Last!.Value) { ticks.Clear(); session.Loss.Clear(); session.Delay.Clear(); }
         TrackMotionLoss(session, timestamp, now);
+        TrackDelay(session, timestamp, now);
         ticks.AddLast(timestamp);
         while (ticks.Count > 2 && timestamp - ticks.First!.Value > MotionRateWindow) ticks.RemoveFirst();
         double span = timestamp - ticks.First!.Value;
@@ -154,6 +160,34 @@ public sealed class StreamTracker
         if (Math.Abs(rate - declared) > MotionRateTolerance * declared)
             _findings.Warn("motion-rate",
                 $"{session.Who} declares motionRateHz {declared:0.#} but sends about {rate:0} Hz", now);
+    }
+
+    /// <summary>Delay variation the warning allows (95th percentile above the
+    /// window's lowest delay), seconds.</summary>
+    public const double JitterWarnSeconds = 0.050;
+    /// <summary>Arrival time the delay figures span, seconds.</summary>
+    public const double DelayWindow = 10.0;
+
+    /// <summary>Records <c>arrival − sender timestamp</c> per motion tick. That
+    /// difference moves with network delay whatever the offset between the two
+    /// clocks, so its spread above the window's lowest value is delay variation
+    /// (jitter) without any clock sync. The same difference against the
+    /// sender's wall-clock anchor is an apparent one-way delay, right only when
+    /// the clocks agree.</summary>
+    void TrackDelay(Session session, double timestamp, long now)
+    {
+        double arrival = now * _tickSeconds;
+        double apparent = (WallClockUnixUs() - (session.Start + timestamp * 1e6)) / 1000.0; // ms
+        var delay = session.Delay;
+        delay.AddLast((arrival, arrival - timestamp, apparent));
+        while (delay.Count > 1 && arrival - delay.First!.Value.Arrival > DelayWindow) delay.RemoveFirst();
+        // sorting the window is cheap but not free: judge twice a second
+        if (arrival - session.LastDelayCheck < 0.5) return;
+        session.LastDelayCheck = arrival;
+        if (session.DelaySummary() is { } d && d.P95Ms > JitterWarnSeconds * 1000)
+            _findings.Warn("motion-jitter",
+                $"{session.Who} motion arrives with more than {JitterWarnSeconds * 1000:0} ms of delay variation " +
+                $"(95th percentile over the last {DelayWindow:0} s)", now);
     }
 
     /// <summary>Sender time the loss estimate spans, seconds.</summary>
@@ -551,7 +585,9 @@ public sealed class StreamTracker
                     s.InstanceLabel, s.Host,
                     ReferenceEquals(s.Source, Unattributed) ? "" : s.Source.ToString(),
                     s.HasAtmosphere, s.DeclaredMotionRateHz,
-                    s.LossFraction, s.LossSummary().Lost, s.LossSummary().Span))
+                    s.LossFraction, s.LossSummary().Lost, s.LossSummary().Span,
+                    s.DelaySummary()?.P50Ms, s.DelaySummary()?.P95Ms, s.DelaySummary()?.MaxMs,
+                    s.DelaySummary()?.ApparentMs))
                 .ToList();
             var events = _events.Reverse()
                 .Select(ev => new EventView(ev.Id, ev.Name, ev.Intensity, ev.Duration, ev.Direction,
@@ -725,6 +761,23 @@ public sealed class StreamTracker
         public float DeclaredMotionRateHz;
         /// <summary>Sender timestamps of the recent motion ticks.</summary>
         public readonly LinkedList<double> TickTimes = new();
+        /// <summary>Recent motion ticks: arrival time, arrival − sender timestamp, and
+        /// the apparent one-way delay in ms.</summary>
+        public readonly LinkedList<(double Arrival, double Relative, double ApparentMs)> Delay = new();
+        public double LastDelayCheck = double.NegativeInfinity;
+
+        /// <summary>Delay variation over the window (ms above its lowest delay)
+        /// and the median apparent delay; null until 2 s and 10 ticks are in.</summary>
+        public (double P50Ms, double P95Ms, double MaxMs, double ApparentMs)? DelaySummary()
+        {
+            if (Delay.Count < 10 || Delay.Last!.Value.Arrival - Delay.First!.Value.Arrival < 2.0) return null;
+            double min = Delay.Min(e => e.Relative);
+            var excess = Delay.Select(e => (e.Relative - min) * 1000.0).OrderBy(x => x).ToList();
+            var apparent = Delay.Select(e => e.ApparentMs).OrderBy(x => x).ToList();
+            double At(List<double> sorted, double q) => sorted[(int)Math.Round(q * (sorted.Count - 1))];
+            return (At(excess, 0.5), At(excess, 0.95), excess[^1], At(apparent, 0.5));
+        }
+
         /// <summary>Recent ticks with the declared intervals missing before each.</summary>
         public readonly LinkedList<(double At, int Missed)> Loss = new();
 
