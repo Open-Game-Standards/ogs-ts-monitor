@@ -6,21 +6,16 @@ public class ViewModelTests
     public void Attitude_mode_buttons_select_exactly_one()
     {
         var vm = new MonitorViewModel(new StreamTracker());
-        Assert.True(vm.IsChaseMode);
+        Assert.True(vm.IsWorldMode);
 
         vm.IsHorizonMode = true;
         Assert.Equal(AttitudeMode.Horizon, vm.Mode);
         Assert.True(vm.UseHorizon);
-        Assert.False(vm.IsChaseMode);
+        Assert.False(vm.IsWorldMode);
 
-        // from the horizon, Chase is still one click away
-        vm.IsChaseMode = true;
-        Assert.Equal(AttitudeMode.Chase, vm.Mode);
-        Assert.True(vm.Chase);
-        Assert.True(vm.UseAxes);
-
+        // from the horizon, World is still one click away
         vm.IsWorldMode = true;
-        Assert.False(vm.Chase);
+        Assert.Equal(AttitudeMode.World, vm.Mode);
         Assert.True(vm.UseAxes);
 
         // unchecking the selected mode is refused: one stays on

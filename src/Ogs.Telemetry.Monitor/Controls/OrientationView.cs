@@ -10,10 +10,7 @@ namespace Ogs.Telemetry.Monitor.Controls;
 /// <summary>
 /// The object's orientation drawn as a box with its body axes (x right,
 /// y up, z forward) over a gravity-aligned ground grid. Works at any
-/// attitude: inverted, vertical, tumbling. In chase mode the heading is
-/// taken out, so the view always looks from behind and slightly above and
-/// right, and pitch and roll read the same whichever way the object faces;
-/// world mode shows the full orientation against fixed world axes.
+/// attitude: inverted, vertical, tumbling, against fixed world axes.
 /// </summary>
 public sealed class OrientationView : Control
 {
@@ -21,8 +18,6 @@ public sealed class OrientationView : Control
         AvaloniaProperty.Register<OrientationView, Quaternion>(nameof(Orientation), Quaternion.Identity);
     public static readonly StyledProperty<bool> IsLiveProperty =
         AvaloniaProperty.Register<OrientationView, bool>(nameof(IsLive));
-    public static readonly StyledProperty<bool> ChaseProperty =
-        AvaloniaProperty.Register<OrientationView, bool>(nameof(Chase), true);
 
     static readonly IPen GridPen = new Pen(new SolidColorBrush(Color.FromArgb(70, 140, 170, 150)), 1);
     static readonly IBrush Shadow = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0));
@@ -43,19 +38,15 @@ public sealed class OrientationView : Control
     static readonly Vector3 Half = new(0.55f, 0.24f, 1.0f); // box half-extents: right, up, forward
     const float GroundY = -0.75f;
 
-    float _heading; // last good heading for chase mode, radians
-
     static OrientationView()
     {
-        AffectsRender<OrientationView>(OrientationProperty, IsLiveProperty, ChaseProperty);
+        AffectsRender<OrientationView>(OrientationProperty, IsLiveProperty);
         // the ground grid extends past the box; keep it inside the control
         ClipToBoundsProperty.OverrideDefaultValue<OrientationView>(true);
     }
 
     public Quaternion Orientation { get => GetValue(OrientationProperty); set => SetValue(OrientationProperty, value); }
     public bool IsLive { get => GetValue(IsLiveProperty); set => SetValue(IsLiveProperty, value); }
-    public bool Chase { get => GetValue(ChaseProperty); set => SetValue(ChaseProperty, value); }
-
     protected override Size MeasureOverride(Size availableSize)
     {
         double s = Math.Min(availableSize.Width, availableSize.Height);
@@ -73,13 +64,6 @@ public sealed class OrientationView : Control
         var q = Orientation;
         if (q.LengthSquared() < 1e-6f) q = Quaternion.Identity;
         q = Quaternion.Normalize(q);
-        if (Chase)
-        {
-            var f = Vector3.Transform(Vector3.UnitZ, q);
-            // heading is undefined pointing straight up/down: hold the last one
-            if (MathF.Abs(f.Y) < 0.95f) _heading = MathF.Atan2(f.X, f.Z);
-            q = Quaternion.Normalize(Quaternion.CreateFromAxisAngle(Vector3.UnitY, -_heading) * q);
-        }
 
         (Point P, float Depth) Project(Vector3 world)
         {
@@ -151,8 +135,7 @@ public sealed class OrientationView : Control
         DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0, 1.65f), q)).P, AxisZ, compact ? "z" : "z fwd");
 
         var brush = new SolidColorBrush(Color.FromArgb(170, 200, 215, 195));
-        var mode = Text(Chase ? "chase view · heading removed" : "world view", 10, brush);
-        if (mode.Width > Bounds.Width - 12) mode = Text(Chase ? "chase" : "world", 10, brush);
+        var mode = Text("world view", 10, brush);
         if (mode.Width <= Bounds.Width - 12)
             ctx.DrawText(mode, new Point(6, Bounds.Height - mode.Height - 4));
     }

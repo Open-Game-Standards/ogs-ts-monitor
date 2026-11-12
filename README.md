@@ -31,12 +31,11 @@ build it, or to confirm a loader mod is working before you strap in.
   name stay separate. Paged discovery and motion parts merge
   into one picture: pages of a generation by object and channel id, a
   tick's parts by timestamp.
-- **Attitude:** three views, one click apart. **Chase** shows the body axes
-  from behind with heading removed, so pitch and roll read the same whichever
-  way the object faces (the default for vehicles). **World** shows the body
-  axes against fixed world axes, for spacecraft and free 6-DoF motion. Both
-  work at any attitude, including inverted or vertical. **Horizon** is an
-  aircraft attitude indicator (the default for aircraft).
+- **Attitude:** two views, one click apart. **World** shows the body axes
+  against fixed world axes, for vehicles, spacecraft and free 6-DoF motion; it
+  works at any attitude, including inverted or vertical (the default for
+  non-aircraft). **Horizon** is an aircraft attitude indicator with a heading
+  tape (the default for aircraft).
 - **Track:** the last 30 s of position from above, auto-fitted, with heading.
 - **Time history:** auto-scaled strips of roll, pitch, yaw rate, surge, sway,
   heave and height, so a car's 2° of roll is as readable as an aircraft's 60°.

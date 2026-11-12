@@ -143,16 +143,62 @@ public sealed class AttitudeIndicator : Control
 
         if (IsLive)
         {
-            var heading = Text($"HDG {Normalise(Yaw):000}°", 11, Brushes.White);
-            var box = new Rect(c.X - heading.Width / 2 - 6, c.Y + r * 0.62 - 2, heading.Width + 12, heading.Height + 4);
-            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)), box, 4);
-            ctx.DrawText(heading, new Point(box.X + 6, box.Y + 2));
+            DrawHeadingTape(ctx, c, r);
         }
         else
         {
             var waiting = Text("no pose", 12, new SolidColorBrush(Color.Parse("#c9dcc0")));
             ctx.DrawText(waiting, new Point(c.X - waiting.Width / 2, c.Y + r * 0.35));
         }
+    }
+
+    /// <summary>
+    /// A compass tape across the lower dial: ticks every 5°, N/E/S/W and
+    /// tens-of-degrees labels, sliding under a fixed pointer, with the
+    /// numeric heading in a box above it.
+    /// </summary>
+    void DrawHeadingTape(DrawingContext ctx, Point c, double r)
+    {
+        const double span = 80; // degrees visible across the tape
+        double yaw = ((Yaw % 360) + 360) % 360;
+        double tapeH = Math.Clamp(r * 0.22, 14, 24);
+        double top = c.Y + r * 0.5;
+        double half = Math.Sqrt(Math.Max(0, r * r - (top + tapeH - c.Y) * (top + tapeH - c.Y))) * 0.92;
+
+        var readout = Text($"HDG {Normalise(Yaw):000}°", 11, Brushes.White);
+        var box = new Rect(c.X - readout.Width / 2 - 6, top - readout.Height - 8, readout.Width + 12, readout.Height + 4);
+        ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(150, 0, 0, 0)), box, 4);
+        ctx.DrawText(readout, new Point(box.X + 6, box.Y + 2));
+
+        if (half < 24) return; // dial too small for a legible tape
+        var tape = new Rect(c.X - half, top, 2 * half, tapeH);
+        ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(170, 0, 0, 0)), tape, 3);
+        double pxPerDeg = tape.Width / span;
+        using (ctx.PushClip(tape))
+        {
+            int first = (int)Math.Ceiling((yaw - span / 2) / 5) * 5;
+            for (int d = first; d <= yaw + span / 2; d += 5)
+            {
+                double x = c.X + (d - yaw) * pxPerDeg;
+                int deg = ((d % 360) + 360) % 360;
+                bool major = deg % 10 == 0;
+                ctx.DrawLine(Tick, new Point(x, tape.Bottom), new Point(x, tape.Bottom - (major ? tapeH * 0.4 : tapeH * 0.22)));
+                if (deg % 30 != 0 || tapeH < 16) continue;
+                string label = deg switch { 0 => "N", 90 => "E", 180 => "S", 270 => "W", _ => (deg / 10).ToString(CultureInfo.InvariantCulture) };
+                var t = Text(label, 10, deg % 90 == 0 ? Pointer : Brushes.White);
+                ctx.DrawText(t, new Point(x - t.Width / 2, tape.Y + 1));
+            }
+        }
+        // fixed pointer at the lubber line
+        var geo = new StreamGeometry();
+        using (var g = geo.Open())
+        {
+            g.BeginFigure(new Point(c.X - 5, tape.Y - 1), true);
+            g.LineTo(new Point(c.X + 5, tape.Y - 1));
+            g.LineTo(new Point(c.X, tape.Y + 6));
+            g.EndFigure(true);
+        }
+        ctx.DrawGeometry(Pointer, null, geo);
     }
 
     static double Normalise(double yaw) => ((Math.Round(yaw) % 360) + 360) % 360;

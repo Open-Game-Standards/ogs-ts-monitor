@@ -165,8 +165,6 @@
               <TextBlock Text="{Binding ObjectInfo}" Classes="muted" FontSize="12" TextWrapping="Wrap"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
-              <ToggleButton Content="Chase" IsChecked="{Binding IsChaseMode}"
-                            ToolTip.Tip="Body axes seen from behind, heading removed: pitch and roll read the same whichever way the object faces (default for vehicles)"/>
               <ToggleButton Content="World" IsChecked="{Binding IsWorldMode}"
                             ToolTip.Tip="Body axes against fixed world axes: full 6-DoF orientation, for spacecraft and free motion"/>
               <ToggleButton Content="Horizon" IsChecked="{Binding IsHorizonMode}"
@@ -179,7 +177,7 @@
             <TextBlock Grid.Column="2" Classes="label" Text="TRACK · TOP-DOWN · LAST 30 S"/>
             <Panel Grid.Row="1">
               <c:OrientationView Orientation="{Binding Orientation}" IsLive="{Binding PoseLive}"
-                                 Chase="{Binding Chase}" IsVisible="{Binding UseAxes}"/>
+                                 IsVisible="{Binding UseAxes}"/>
               <c:AttitudeIndicator Pitch="{Binding Pitch}" Roll="{Binding Roll}" Yaw="{Binding Yaw}"
                                    IsLive="{Binding PoseLive}" IsVisible="{Binding UseHorizon}"/>
             </Panel>

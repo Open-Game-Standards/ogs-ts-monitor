@@ -65,9 +65,10 @@ public sealed class MainWindowViewModel : Observable, IDisposable
     public bool DemoRunning
     {
         get => _demoRunning;
-        private set { if (Set(ref _demoRunning, value)) Raise(nameof(DemoLabel)); }
+        private set { if (Set(ref _demoRunning, value)) Raise(nameof(DemoLabel)); Raise(nameof(DemoText)); }
     }
     public string DemoLabel => DemoRunning ? "Stop demo sender" : "Start demo sender";
+    public string DemoText => DemoRunning ? "Stop demo" : "Demo";
 
     // ---- recording (recording.md) ----
 
@@ -77,8 +78,10 @@ public sealed class MainWindowViewModel : Observable, IDisposable
 
     public bool IsRecording => _recorder is not null;
     public string RecordLabel => IsRecording ? "Stop recording" : "Record";
+    public string RecordGlyph => IsRecording ? "■" : "●";
     public bool IsPlaying => _playback is not null;
     public string PlayLabel => IsPlaying ? "Stop playback" : "Play recording";
+    public string PlayGlyph => IsPlaying ? "■" : "▶";
 
     void OnRaw(IPEndPoint source, ReadOnlyMemory<byte> datagram) => _recorder?.Write(source, datagram.Span);
 
@@ -151,8 +154,8 @@ public sealed class MainWindowViewModel : Observable, IDisposable
 
     public void StopPlayback() => _playback?.Cancel();
 
-    void RaiseRecording() { Raise(nameof(IsRecording)); Raise(nameof(RecordLabel)); }
-    void RaisePlayback() { Raise(nameof(IsPlaying)); Raise(nameof(PlayLabel)); }
+    void RaiseRecording() { Raise(nameof(IsRecording)); Raise(nameof(RecordLabel)); Raise(nameof(RecordGlyph)); }
+    void RaisePlayback() { Raise(nameof(IsPlaying)); Raise(nameof(PlayLabel)); Raise(nameof(PlayGlyph)); }
 
     string _status = "";
     public string Status { get => _status; private set => Set(ref _status, value); }
@@ -177,6 +180,9 @@ public sealed class MainWindowViewModel : Observable, IDisposable
             Report($"'{Port}' is not a valid port.", error: true);
             return;
         }
+        // the isolated (loopback) demo and a live listener would mix their cars
+        bool stoppedDemo = _demo is not null && !_demoLan;
+        if (stoppedDemo) ToggleDemo();
         try
         {
             // the interface list holds IPv4 addresses: an IPv6 group joins on the default interface
@@ -186,7 +192,7 @@ public sealed class MainWindowViewModel : Observable, IDisposable
             _receiver.RawDatagramReceived += OnRaw;
             _receiver.Start();
             IsListening = true;
-            Report($"Listening on {Group}:{port} via {SelectedInterface.Label}.", error: false);
+            Report($"Listening on {Group}:{port} via {SelectedInterface.Label}.{(stoppedDemo ? " Demo sender stopped." : "")}", error: false);
         }
         catch (SocketException ex)
         {
@@ -213,6 +219,7 @@ public sealed class MainWindowViewModel : Observable, IDisposable
             _demoReceiver?.Dispose();
             _demoReceiver = null;
             DemoRunning = false;
+            Report("Demo sender stopped.", error: false);
             return;
         }
         if (!int.TryParse(Port, out int port)) return;
@@ -229,13 +236,16 @@ public sealed class MainWindowViewModel : Observable, IDisposable
                 // isolated: loopback only, on its own group and port, with
                 // its own receiver feeding this monitor; a local GameConn
                 // never sees a demo car, and a game streaming on the group
-                // being monitored isn't disturbed
+                // being monitored isn't disturbed. The live listener stops so
+                // real game data doesn't mix into the demo car's picture.
+                bool wasListening = IsListening;
+                if (wasListening) Stop();
                 _demoReceiver ??= new TelemetryReceiver(TelemetryReceiver.LoopbackGroup, DemoPort, IPAddress.Loopback);
                 _tracker.Attach(_demoReceiver);
                 _demoReceiver.RawDatagramReceived += OnRaw;
                 _demoReceiver.Start();
                 _demo = new DemoSender(TelemetryReceiver.LoopbackGroup, DemoPort, lan: false);
-                Report($"Demo sender running on this machine only (loopback, {TelemetryReceiver.LoopbackGroup}:{DemoPort}).", error: false);
+                Report($"Demo sender running on this machine only (loopback, {TelemetryReceiver.LoopbackGroup}:{DemoPort}).{(wasListening ? " Listener stopped." : "")}", error: false);
             }
             DemoRunning = true;
         }
