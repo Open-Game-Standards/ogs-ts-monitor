@@ -8,7 +8,7 @@ public partial class App : Application
 {
     public override void Initialize()
     {
-        CrashGuard.Install();
+        Ogs.Telemetry.Monitor.CrashGuard.Install("OgsTsMonitor");
         AvaloniaXamlLoader.Load(this);
     }
 

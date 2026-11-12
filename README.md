@@ -178,3 +178,5 @@ MIT. See [LICENSE](LICENSE).
 A fault on the UI thread (a layout pass that cannot arrange a panel after an
 unusual resize, say) does not end the monitor: the stream keeps being tracked
 and the fault is appended to `%LOCALAPPDATA%\OgsTsMonitor\faults.log`.
+
+Apps that embed the monitor views call `CrashGuard.Install("<AppName>")` at startup to get the same behaviour, logging to `%LOCALAPPDATA%\<AppName>\faults.log`.
