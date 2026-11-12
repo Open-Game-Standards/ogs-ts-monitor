@@ -58,6 +58,7 @@ rather than flooding the list.
 | `quaternion-norm` | warning | orientation is a unit quaternion |
 | `primary-first` | warning | motion lists the primary object first |
 | `motion-rate` | warning | the achieved motion rate (from frame timestamps, over a few seconds) is within 10 % of the declared `motionRateHz` (implementation-udp.md, Send cadence) |
+| `motion-gap` | warning | more than 5 % of the declared motion ticks are missing over the last 10 s, estimated from gaps in the frames' own timestamps (a refused send and a dropped packet look the same to a receiver); the live figure is on the session line |
 | `undeclared-object`, `undeclared-channel` | warning | motion only refers to what discovery declared |
 | `event-id-order` | warning | new event ids never go backwards (session-monotonic) |
 | `event-intensity` | warning | event intensity is within 0..1 (C-3) |

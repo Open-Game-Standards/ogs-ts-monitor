@@ -143,7 +143,8 @@ public sealed class StreamTracker
     void CheckMotionRate(Session session, double timestamp, long now)
     {
         var ticks = session.TickTimes;
-        if (ticks.Count > 0 && timestamp < ticks.Last!.Value) ticks.Clear();
+        if (ticks.Count > 0 && timestamp < ticks.Last!.Value) { ticks.Clear(); session.Loss.Clear(); }
+        TrackMotionLoss(session, timestamp, now);
         ticks.AddLast(timestamp);
         while (ticks.Count > 2 && timestamp - ticks.First!.Value > MotionRateWindow) ticks.RemoveFirst();
         double span = timestamp - ticks.First!.Value;
@@ -153,6 +154,37 @@ public sealed class StreamTracker
         if (Math.Abs(rate - declared) > MotionRateTolerance * declared)
             _findings.Warn("motion-rate",
                 $"{session.Who} declares motionRateHz {declared:0.#} but sends about {rate:0} Hz", now);
+    }
+
+    /// <summary>Sender time the loss estimate spans, seconds.</summary>
+    public const double MotionLossWindow = 10.0;
+    /// <summary>Share of declared motion ticks that may be missing before it is reported.</summary>
+    public const double MotionLossTolerance = 0.05;
+
+    /// <summary>Estimates motion frames that never arrived. Ticks carry the
+    /// sender's own clock, so a gap of several declared intervals between two
+    /// consecutive ticks means the frames in between were not sent or were
+    /// lost on the way; the receiver cannot tell which, and either way the
+    /// rig did not get them. A gap under 1.75 intervals is frame-pacing
+    /// jitter, not loss. Needs a declared <c>motionRateHz</c>.</summary>
+    void TrackMotionLoss(Session session, double timestamp, long now)
+    {
+        var loss = session.Loss;
+        double interval = session.DeclaredMotionRateHz > 0 ? 1.0 / session.DeclaredMotionRateHz : 0;
+        int missed = 0;
+        if (interval > 0 && loss.Count > 0)
+        {
+            double gap = timestamp - loss.Last!.Value.At;
+            missed = Math.Max(0, (int)Math.Floor(gap / interval + 0.25) - 1);
+        }
+        loss.AddLast((timestamp, missed));
+        while (loss.Count > 1 && timestamp - loss.First!.Value.At > MotionLossWindow) loss.RemoveFirst();
+        if (interval <= 0) return;
+        var (lost, expected, span) = session.LossSummary();
+        if (span >= 2.0 && expected > 0 && lost > MotionLossTolerance * expected)
+            _findings.Warn("motion-gap",
+                $"{session.Who} is missing motion frames: more than {MotionLossTolerance:P0} of the declared " +
+                $"ticks did not arrive over the last {MotionLossWindow:0} s", now);
     }
 
     /// <summary>Checks one datagram's size against the 1,400-byte budget
@@ -518,7 +550,8 @@ public sealed class StreamTracker
                         .ToList(),
                     s.InstanceLabel, s.Host,
                     ReferenceEquals(s.Source, Unattributed) ? "" : s.Source.ToString(),
-                    s.HasAtmosphere, s.DeclaredMotionRateHz))
+                    s.HasAtmosphere, s.DeclaredMotionRateHz,
+                    s.LossFraction, s.LossSummary().Lost, s.LossSummary().Span))
                 .ToList();
             var events = _events.Reverse()
                 .Select(ev => new EventView(ev.Id, ev.Name, ev.Intensity, ev.Duration, ev.Direction,
@@ -692,6 +725,22 @@ public sealed class StreamTracker
         public float DeclaredMotionRateHz;
         /// <summary>Sender timestamps of the recent motion ticks.</summary>
         public readonly LinkedList<double> TickTimes = new();
+        /// <summary>Recent ticks with the declared intervals missing before each.</summary>
+        public readonly LinkedList<(double At, int Missed)> Loss = new();
+
+        /// <summary>Missing and expected ticks over the loss window, and the
+        /// sender time it spans.</summary>
+        /// <summary>Missing share of the expected ticks, 0 when unknown.</summary>
+        public double LossFraction => LossSummary() is { Expected: > 0 } s ? s.Lost / (double)s.Expected : 0;
+
+        public (int Lost, int Expected, double Span) LossSummary()
+        {
+            if (Loss.Count < 2) return (0, 0, 0);
+            int lost = 0, received = 0;
+            // the first entry only anchors the window: its gap lies outside it
+            foreach (var e in Loss.Skip(1)) { lost += e.Missed; received++; }
+            return (lost, lost + received, Loss.Last!.Value.At - Loss.First!.Value.At);
+        }
         public Vector3 Gravity;
         public long LastDiscovery;
         public long DiscoveryCount;

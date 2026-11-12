@@ -256,10 +256,14 @@ public sealed class MonitorViewModel : Observable
         var rate = sv.DeclaredMotionRateHz > 0
             ? string.Create(CultureInfo.InvariantCulture, $"declares {sv.DeclaredMotionRateHz:0.#} Hz · ")
             : "";
+        var loss = sv.MotionFramesLost > 0
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"motion loss {sv.MotionLossFraction:P0} ({sv.MotionFramesLost} frames in {sv.MotionLossSpanSeconds:0} s) · ")
+            : "";
         SessionInfo = string.Create(CultureInfo.InvariantCulture,
             $"{Where(sv)}schema {sv.SchemaVersion} · {sv.Medium} · session from {started:HH:mm:ss} · " +
             $"discovery {sv.DiscoveryAgeSeconds:0.0} s ago ({sv.DiscoveryCount}) · " +
-            $"generation {sv.Generation}{pages} · {rate}{air}");
+            $"generation {sv.Generation}{pages} · {rate}{loss}{air}");
     }
 
     /// <summary>Game name, then the instance label that tells several

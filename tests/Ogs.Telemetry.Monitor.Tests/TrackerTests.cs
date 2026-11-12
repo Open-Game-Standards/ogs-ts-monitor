@@ -631,4 +631,67 @@ public class TrackerTests
         SendTicks(t, 6, 23);
         Assert.DoesNotContain("motion-rate", Rules(t.Snapshot()));
     }
+
+    // ---- Missing motion frames (estimated from the senders' tick gaps) -----
+
+    void SendAt(StreamTracker t, IEnumerable<double> timestamps)
+    {
+        foreach (var ts in timestamps)
+        {
+            var m = Motion(Pose("car"));
+            m.Timestamp = ts;
+            t.Ingest(Encode(FrameType.Motion, m));
+        }
+    }
+
+    [Fact]
+    public void Dropped_ticks_are_counted_and_reported()
+    {
+        var t = RateTracker(30);
+        // 6 s at 30 Hz with every 5th tick missing: 20 % loss
+        SendAt(t, Enumerable.Range(0, 181).Where(i => i % 5 != 4).Select(i => i / 30.0));
+        var s = t.Snapshot();
+        var sv = s.Sessions.Single();
+        Assert.InRange(sv.MotionLossFraction, 0.17, 0.23);
+        Assert.True(sv.MotionFramesLost > 0);
+        Assert.Contains("motion-gap", Rules(s));
+    }
+
+    [Fact]
+    public void A_complete_stream_reports_no_loss()
+    {
+        var t = RateTracker(30);
+        SendAt(t, Enumerable.Range(0, 181).Select(i => i / 30.0));
+        var s = t.Snapshot();
+        Assert.Equal(0, s.Sessions.Single().MotionFramesLost);
+        Assert.DoesNotContain("motion-gap", Rules(s));
+    }
+
+    [Fact]
+    public void Frame_pacing_jitter_is_not_loss()
+    {
+        var t = RateTracker(30);
+        // a 90 FPS host sending at 30 Hz: gaps alternate 33 and 44 ms
+        var ts = new List<double>();
+        double next = 0;
+        for (int f = 0; f < 600; f++)
+        {
+            double now = f / 90.0;
+            if (now >= next - 1e-6) { ts.Add(now); next += 1.0 / 30; }
+        }
+        SendAt(t, ts);
+        var s = t.Snapshot();
+        Assert.Equal(0, s.Sessions.Single().MotionFramesLost);
+        Assert.DoesNotContain("motion-gap", Rules(s));
+    }
+
+    [Fact]
+    public void Loss_is_not_estimated_without_a_declared_rate()
+    {
+        var t = RateTracker(0);
+        SendAt(t, Enumerable.Range(0, 181).Where(i => i % 5 != 4).Select(i => i / 30.0));
+        var s = t.Snapshot();
+        Assert.Equal(0, s.Sessions.Single().MotionFramesLost);
+        Assert.DoesNotContain("motion-gap", Rules(s));
+    }
 }

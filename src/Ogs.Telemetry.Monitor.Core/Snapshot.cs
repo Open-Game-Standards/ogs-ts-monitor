@@ -32,7 +32,10 @@ public sealed record SessionView(
     string Host = "",
     string Source = "",
     bool HasAtmosphere = false,
-    float DeclaredMotionRateHz = 0);
+    float DeclaredMotionRateHz = 0,
+    double MotionLossFraction = 0,
+    int MotionFramesLost = 0,
+    double MotionLossSpanSeconds = 0);
 
 public sealed record ObjectView(
     string Key,
