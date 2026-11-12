@@ -15,6 +15,7 @@ public partial class MonitorView : UserControl
     MonitorViewModel? _vm;
     ScrollViewer? _logScroll;
     bool _followLog = true;
+    bool _scrollPosted;
 
     public MonitorView()
     {
@@ -51,7 +52,20 @@ public partial class MonitorView : UserControl
             double bottom = _logScroll.Extent.Height - _logScroll.Viewport.Height;
             _followLog = bottom <= 0 || _logScroll.Offset.Y >= bottom - 24;
         }
-        if (_followLog && LogList.ItemCount > 0)
-            LogList.ScrollIntoView(LogList.ItemCount - 1);
+        // Not LogList.ScrollIntoView(last): once the log is full each refresh drops row 0, which
+        // leaves the virtualizing panel's start position unstable (NaN) until its next measure,
+        // and ScrollIntoView runs nested layout passes whose measure is a no-op. Arranging in
+        // that state throws "Invalid Arrange rectangle" when the window is resized, ending the
+        // app. Scroll the viewer itself, once, after the layout that includes the new rows so
+        // the offset matches the real extent (scrolling now would use the stale one).
+        if (_followLog && LogList.ItemCount > 0 && !_scrollPosted)
+        {
+            _scrollPosted = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _scrollPosted = false;
+                if (_followLog) _logScroll?.ScrollToEnd();
+            }, DispatcherPriority.Background);
+        }
     }
 }

@@ -6,6 +6,9 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.0" />
+    <!-- the monitor views run for real, without a display (LogFollowTests) -->
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.3.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Ogs.Telemetry.Monitor.Core\Ogs.Telemetry.Monitor.Core.csproj" />
