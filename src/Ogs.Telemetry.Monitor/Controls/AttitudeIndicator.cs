@@ -161,7 +161,7 @@ public sealed class AttitudeIndicator : Control
     {
         const double span = 80; // degrees visible across the tape
         double yaw = ((Yaw % 360) + 360) % 360;
-        double tapeH = Math.Clamp(r * 0.22, 14, 24);
+        double tapeH = Math.Clamp(r * 0.22, 18, 24);
         double top = c.Y + r * 0.5;
         double half = Math.Sqrt(Math.Max(0, r * r - (top + tapeH - c.Y) * (top + tapeH - c.Y))) * 0.92;
 
@@ -183,7 +183,7 @@ public sealed class AttitudeIndicator : Control
                 int deg = ((d % 360) + 360) % 360;
                 bool major = deg % 10 == 0;
                 ctx.DrawLine(Tick, new Point(x, tape.Bottom), new Point(x, tape.Bottom - (major ? tapeH * 0.4 : tapeH * 0.22)));
-                if (deg % 30 != 0 || tapeH < 16) continue;
+                if (deg % 30 != 0) continue;
                 string label = deg switch { 0 => "N", 90 => "E", 180 => "S", 270 => "W", _ => (deg / 10).ToString(CultureInfo.InvariantCulture) };
                 var t = Text(label, 10, deg % 90 == 0 ? Pointer : Brushes.White);
                 ctx.DrawText(t, new Point(x - t.Width / 2, tape.Y + 1));
