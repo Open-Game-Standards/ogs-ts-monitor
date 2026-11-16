@@ -7,8 +7,11 @@ namespace Ogs.Telemetry.Monitor;
 /// Y up), as the reference receiver prints it. ZYX Tait-Bryan angles from the
 /// rotated basis vectors: forward f = q·(0,0,1), right r = q·(1,0,0) →
 /// yaw = atan2(f.X, f.Z) (0 = +Z, turning right positive), pitch = asin(f.Y)
-/// (nose up positive), roll = asin(−r.Y / cos pitch) (right side down
-/// positive; degenerate only at ±90° pitch).
+/// (nose up positive), roll = atan2(−r.Y, u.Y) with u = q·(0,1,0) (right side
+/// down positive, full ±180° through inverted: asin(−r.Y / cos pitch) is the
+/// same up to ±90° and folds beyond it). Roll is read from the world-Y parts of
+/// the right and up vectors, which heading and pitch do not touch. Degenerate
+/// only at ±90° pitch.
 /// </summary>
 public static class Euler
 {
@@ -18,10 +21,11 @@ public static class Euler
     {
         var f = Vector3.Transform(Vector3.UnitZ, q);
         var r = Vector3.Transform(Vector3.UnitX, q);
+        var u = Vector3.Transform(Vector3.UnitY, q);
         float yaw = MathF.Atan2(f.X, f.Z) * Rad2Deg;
         float pitch = MathF.Asin(Clamp1(f.Y)) * Rad2Deg;
         float cosPitch = MathF.Cos(pitch / Rad2Deg);
-        float roll = MathF.Abs(cosPitch) < 1e-3f ? 0f : MathF.Asin(Clamp1(-r.Y / cosPitch)) * Rad2Deg;
+        float roll = MathF.Abs(cosPitch) < 1e-3f ? 0f : MathF.Atan2(-r.Y, u.Y) * Rad2Deg;
         return (yaw + 0f, pitch + 0f, roll + 0f); // +0f folds −0.0
     }
 
