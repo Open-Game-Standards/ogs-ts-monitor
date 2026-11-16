@@ -22,6 +22,33 @@ public sealed class AttitudeIndicator : Control
     public static readonly StyledProperty<bool> IsLiveProperty =
         AvaloniaProperty.Register<AttitudeIndicator, bool>(nameof(IsLive));
 
+    // A second pose drawn over the first as a "ghost" (a motion rig's output over the
+    // game's input): a dashed horizon, a hollow roll pointer and a heading tick.
+    public static readonly StyledProperty<double> GhostPitchProperty =
+        AvaloniaProperty.Register<AttitudeIndicator, double>(nameof(GhostPitch));
+    public static readonly StyledProperty<double> GhostRollProperty =
+        AvaloniaProperty.Register<AttitudeIndicator, double>(nameof(GhostRoll));
+    public static readonly StyledProperty<double> GhostYawProperty =
+        AvaloniaProperty.Register<AttitudeIndicator, double>(nameof(GhostYaw));
+    public static readonly StyledProperty<bool> GhostLiveProperty =
+        AvaloniaProperty.Register<AttitudeIndicator, bool>(nameof(GhostLive));
+
+    /// <summary>True draws the dial in the output's colours (magenta sky, ground and
+    /// ring), matching the ghost.</summary>
+    public static readonly StyledProperty<bool> OutputStyleProperty =
+        AvaloniaProperty.Register<AttitudeIndicator, bool>(nameof(OutputStyle));
+    static readonly IBrush OutSky = new SolidColorBrush(Color.Parse("#9b3a8c"));
+    static readonly IBrush OutGround = new SolidColorBrush(Color.Parse("#4f2149"));
+    static readonly IPen OutRing = new Pen(new SolidColorBrush(Color.Parse("#ff4fd8")), 3);
+    static readonly IBrush OutPointer = new SolidColorBrush(Color.Parse("#ff4fd8"));
+    public bool OutputStyle { get => GetValue(OutputStyleProperty); set => SetValue(OutputStyleProperty, value); }
+
+    static readonly Color GhostColor = Color.Parse("#ff4fd8");
+    static readonly IPen GhostHorizon = new Pen(new SolidColorBrush(GhostColor), 2.2,
+        dashStyle: new DashStyle(new double[] { 4, 3 }, 0), lineCap: PenLineCap.Round);
+    static readonly IPen GhostLadder = new Pen(new SolidColorBrush(Color.FromArgb(220, 255, 79, 216)), 1.4);
+    static readonly IPen GhostOutline = new Pen(new SolidColorBrush(GhostColor), 1.6);
+
     /// <summary>Degrees of pitch from the centre to the rim.</summary>
     const double PitchToRim = 40;
 
@@ -39,12 +66,19 @@ public sealed class AttitudeIndicator : Control
 
     static AttitudeIndicator()
     {
-        AffectsRender<AttitudeIndicator>(PitchProperty, RollProperty, YawProperty, IsLiveProperty);
+        AffectsRender<AttitudeIndicator>(PitchProperty, RollProperty, YawProperty, IsLiveProperty,
+            GhostPitchProperty, GhostRollProperty, GhostYawProperty, GhostLiveProperty, OutputStyleProperty);
     }
 
     public double Pitch { get => GetValue(PitchProperty); set => SetValue(PitchProperty, value); }
     public double Roll { get => GetValue(RollProperty); set => SetValue(RollProperty, value); }
     public double Yaw { get => GetValue(YawProperty); set => SetValue(YawProperty, value); }
+    public double GhostPitch { get => GetValue(GhostPitchProperty); set => SetValue(GhostPitchProperty, value); }
+    public double GhostRoll { get => GetValue(GhostRollProperty); set => SetValue(GhostRollProperty, value); }
+    public double GhostYaw { get => GetValue(GhostYawProperty); set => SetValue(GhostYawProperty, value); }
+    /// <summary>True draws the ghost pose over the main one.</summary>
+    public bool GhostLive { get => GetValue(GhostLiveProperty); set => SetValue(GhostLiveProperty, value); }
+
     /// <summary>False greys the dial: no pose has arrived (or it has stalled).</summary>
     public bool IsLive { get => GetValue(IsLiveProperty); set => SetValue(IsLiveProperty, value); }
 
@@ -78,8 +112,8 @@ public sealed class AttitudeIndicator : Control
                 using (ctx.PushTransform(rotate))
                 {
                     double hy = c.Y + Pitch * px;
-                    ctx.FillRectangle(Sky, new Rect(c.X - 3 * r, hy - 6 * r, 6 * r, 6 * r));
-                    ctx.FillRectangle(Ground, new Rect(c.X - 3 * r, hy, 6 * r, 6 * r));
+                    ctx.FillRectangle(OutputStyle ? OutSky : Sky, new Rect(c.X - 3 * r, hy - 6 * r, 6 * r, 6 * r));
+                    ctx.FillRectangle(OutputStyle ? OutGround : Ground, new Rect(c.X - 3 * r, hy, 6 * r, 6 * r));
                     ctx.DrawLine(Horizon, new Point(c.X - 3 * r, hy), new Point(c.X + 3 * r, hy));
                     for (int deg = -60; deg <= 60; deg += 5)
                     {
@@ -99,7 +133,9 @@ public sealed class AttitudeIndicator : Control
             }
         }
 
-        ctx.DrawEllipse(null, Ring, c, r, r);
+        if (GhostLive) DrawGhostHorizon(ctx, c, r, px, rad);
+
+        ctx.DrawEllipse(null, OutputStyle ? OutRing : Ring, c, r, r);
 
         // roll scale above the dial, and the pointer that follows the horizon
         foreach (int a in new[] { -60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60 })
@@ -122,7 +158,22 @@ public sealed class AttitudeIndicator : Control
                 g.LineTo(new Point(c.X + back * Math.Cos(t + half), c.Y + back * Math.Sin(t + half)));
                 g.EndFigure(true);
             }
-            ctx.DrawGeometry(Pointer, null, geo);
+            ctx.DrawGeometry(OutputStyle ? OutPointer : Pointer, null, geo);
+        }
+
+        if (GhostLive)
+        {
+            double t = (-GhostRoll - 90) * rad;
+            double tip = r + 2, back = r + 12, half = 6 * rad * 1.2;
+            var geo = new StreamGeometry();
+            using (var g = geo.Open())
+            {
+                g.BeginFigure(new Point(c.X + tip * Math.Cos(t), c.Y + tip * Math.Sin(t)), false);
+                g.LineTo(new Point(c.X + back * Math.Cos(t - half), c.Y + back * Math.Sin(t - half)));
+                g.LineTo(new Point(c.X + back * Math.Cos(t + half), c.Y + back * Math.Sin(t + half)));
+                g.EndFigure(true);
+            }
+            ctx.DrawGeometry(null, GhostOutline, geo);
         }
 
         // fixed vehicle reference symbol
@@ -189,6 +240,13 @@ public sealed class AttitudeIndicator : Control
                 ctx.DrawText(t, new Point(x - t.Width / 2, tape.Y + 1));
             }
         }
+        if (GhostLive)
+        {
+            // the ghost heading, as an outlined tick where it sits on the tape
+            double diff = ((GhostYaw - Yaw + 540) % 360 + 360) % 360 - 180;
+            double gx = Math.Clamp(c.X + diff * pxPerDeg, tape.X + 4, tape.Right - 4);
+            ctx.DrawLine(GhostOutline, new Point(gx, tape.Y + 2), new Point(gx, tape.Bottom));
+        }
         // fixed pointer at the lubber line
         var geo = new StreamGeometry();
         using (var g = geo.Open())
@@ -199,6 +257,27 @@ public sealed class AttitudeIndicator : Control
             g.EndFigure(true);
         }
         ctx.DrawGeometry(Pointer, null, geo);
+    }
+
+    /// <summary>The ghost's horizon and pitch ladder, dashed and amber so it
+    /// reads against the filled sky and ground.</summary>
+    void DrawGhostHorizon(DrawingContext ctx, Point c, double r, double px, double rad)
+    {
+        var rotate = Matrix.CreateTranslation(-c.X, -c.Y)
+                     * Matrix.CreateRotation(-GhostRoll * rad)
+                     * Matrix.CreateTranslation(c.X, c.Y);
+        using (ctx.PushGeometryClip(new EllipseGeometry(new Rect(c.X - r, c.Y - r, 2 * r, 2 * r))))
+        using (ctx.PushTransform(rotate))
+        {
+            double hy = c.Y + GhostPitch * px;
+            ctx.DrawLine(GhostHorizon, new Point(c.X - 3 * r, hy), new Point(c.X + 3 * r, hy));
+            for (int deg = -30; deg <= 30; deg += 10)
+            {
+                if (deg == 0) continue;
+                double y = hy - deg * px, w = r * 0.18;
+                ctx.DrawLine(GhostLadder, new Point(c.X - w, y), new Point(c.X + w, y));
+            }
+        }
     }
 
     static double Normalise(double yaw) => ((Math.Round(yaw) % 360) + 360) % 360;

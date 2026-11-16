@@ -19,6 +19,22 @@ public sealed class OrientationView : Control
     public static readonly StyledProperty<bool> IsLiveProperty =
         AvaloniaProperty.Register<OrientationView, bool>(nameof(IsLive));
 
+    // A second orientation drawn over the first as a "ghost" wireframe (a motion rig's
+    // output over the game's input).
+    public static readonly StyledProperty<Quaternion> GhostOrientationProperty =
+        AvaloniaProperty.Register<OrientationView, Quaternion>(nameof(GhostOrientation), Quaternion.Identity);
+    public static readonly StyledProperty<bool> GhostLiveProperty =
+        AvaloniaProperty.Register<OrientationView, bool>(nameof(GhostLive));
+    static readonly IPen GhostEdge = new Pen(new SolidColorBrush(Color.Parse("#ff4fd8")), 2,
+        dashStyle: new DashStyle(new double[] { 4, 3 }, 0), lineJoin: PenLineJoin.Round);
+    static readonly IBrush GhostNose = new SolidColorBrush(Color.FromArgb(80, 255, 79, 216));
+
+    /// <summary>True draws the box in the output's colour (magenta), matching the ghost.</summary>
+    public static readonly StyledProperty<bool> OutputStyleProperty =
+        AvaloniaProperty.Register<OrientationView, bool>(nameof(OutputStyle));
+    static readonly Color OutBody = Color.Parse("#b3359f");
+    public bool OutputStyle { get => GetValue(OutputStyleProperty); set => SetValue(OutputStyleProperty, value); }
+
     static readonly IPen GridPen = new Pen(new SolidColorBrush(Color.FromArgb(70, 140, 170, 150)), 1);
     static readonly IBrush Shadow = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0));
     static readonly IPen Edge = new Pen(new SolidColorBrush(Color.FromArgb(230, 230, 240, 225)), 1.4);
@@ -40,13 +56,16 @@ public sealed class OrientationView : Control
 
     static OrientationView()
     {
-        AffectsRender<OrientationView>(OrientationProperty, IsLiveProperty);
+        AffectsRender<OrientationView>(OrientationProperty, IsLiveProperty, GhostOrientationProperty, GhostLiveProperty, OutputStyleProperty);
         // the ground grid extends past the box; keep it inside the control
         ClipToBoundsProperty.OverrideDefaultValue<OrientationView>(true);
     }
 
     public Quaternion Orientation { get => GetValue(OrientationProperty); set => SetValue(OrientationProperty, value); }
     public bool IsLive { get => GetValue(IsLiveProperty); set => SetValue(IsLiveProperty, value); }
+    public Quaternion GhostOrientation { get => GetValue(GhostOrientationProperty); set => SetValue(GhostOrientationProperty, value); }
+    /// <summary>True draws the ghost orientation over the main one.</summary>
+    public bool GhostLive { get => GetValue(GhostLiveProperty); set => SetValue(GhostLiveProperty, value); }
     protected override Size MeasureOverride(Size availableSize)
     {
         double s = Math.Min(availableSize.Width, availableSize.Height);
@@ -111,6 +130,7 @@ public sealed class OrientationView : Control
             new[] { 0, 4, 5, 1 }, // bottom(-y)
             new[] { 2, 3, 7, 6 }, // top   (+y)
         };
+        var body = OutputStyle ? OutBody : Body;
         var projected = corners.Select(Project).ToArray();
         foreach (var (face, index) in faces.Select((f, i) => (f, i))
                      .OrderByDescending(x => x.f.Average(k => projected[k].Depth)))
@@ -119,9 +139,9 @@ public sealed class OrientationView : Control
             IBrush fill = index switch
             {
                 1 => NoseFill,
-                5 => new SolidColorBrush(Lighten(Body, 0.35), 0.9),
-                4 => new SolidColorBrush(Lighten(Body, -0.35), 0.9),
-                _ => new SolidColorBrush(Body, 0.82),
+                5 => new SolidColorBrush(Lighten(body, 0.35), 0.9),
+                4 => new SolidColorBrush(Lighten(body, -0.35), 0.9),
+                _ => new SolidColorBrush(body, 0.82),
             };
             ctx.DrawGeometry(fill, Edge, Polygon(pts));
         }
@@ -134,10 +154,36 @@ public sealed class OrientationView : Control
         DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0.95f, 0), q)).P, AxisY, compact ? "y" : "y up");
         DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0, 1.65f), q)).P, AxisZ, compact ? "z" : "z fwd");
 
+        if (GhostLive) DrawGhost(ctx, Project);
+
         var brush = new SolidColorBrush(Color.FromArgb(170, 200, 215, 195));
         var mode = Text("world view", 10, brush);
         if (mode.Width <= Bounds.Width - 12)
             ctx.DrawText(mode, new Point(6, Bounds.Height - mode.Height - 4));
+    }
+
+    /// <summary>The ghost box: a dashed outline with its nose face tinted, so
+    /// it shows through the solid box without hiding it.</summary>
+    void DrawGhost(DrawingContext ctx, Func<Vector3, (Point P, float Depth)> project)
+    {
+        var q = GhostOrientation;
+        if (q.LengthSquared() < 1e-6f) q = Quaternion.Identity;
+        q = Quaternion.Normalize(q);
+        var pts = new Point[8];
+        for (int i = 0; i < 8; i++)
+        {
+            var local = new Vector3(
+                (i & 1) == 0 ? -Half.X : Half.X,
+                (i & 2) == 0 ? -Half.Y : Half.Y,
+                (i & 4) == 0 ? -Half.Z : Half.Z);
+            pts[i] = project(Vector3.Transform(local, q)).P;
+        }
+        ctx.DrawGeometry(GhostNose, null, Polygon(new[] { pts[4], pts[6], pts[7], pts[5] }));
+        foreach (var (a, b) in new[]
+                 {
+                     (0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7),
+                 })
+            ctx.DrawLine(GhostEdge, pts[a], pts[b]);
     }
 
     static void DrawAxis(DrawingContext ctx, Point from, Point to, IPen pen, string label)

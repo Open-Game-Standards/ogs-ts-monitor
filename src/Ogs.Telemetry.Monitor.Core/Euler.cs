@@ -25,5 +25,18 @@ public static class Euler
         return (yaw + 0f, pitch + 0f, roll + 0f); // +0f folds −0.0
     }
 
+    /// <summary>The orientation for those angles (degrees): the inverse of
+    /// <see cref="FromQuaternion"/>, for drawing a pose that arrives as
+    /// angles, such as a motion rig's output.</summary>
+    public static Quaternion ToQuaternion(float yawDeg, float pitchDeg, float rollDeg)
+    {
+        const float Deg2Rad = MathF.PI / 180f;
+        // nose-up pitch and right-side-down roll are negative about +X and +Z
+        var yaw = Quaternion.CreateFromAxisAngle(Vector3.UnitY, yawDeg * Deg2Rad);
+        var pitch = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -pitchDeg * Deg2Rad);
+        var roll = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, -rollDeg * Deg2Rad);
+        return Quaternion.Normalize(yaw * pitch * roll);
+    }
+
     static float Clamp1(float v) => v < -1f ? -1f : v > 1f ? 1f : v;
 }
