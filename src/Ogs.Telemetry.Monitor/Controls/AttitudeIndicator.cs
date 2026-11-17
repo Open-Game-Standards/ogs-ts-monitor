@@ -98,7 +98,7 @@ public sealed class AttitudeIndicator : Control
         double px = r / PitchToRim;
         double rad = Math.PI / 180;
 
-        using (ctx.PushGeometryClip(new EllipseGeometry(new Rect(c.X - r, c.Y - r, 2 * r, 2 * r))))
+        using (ctx.PushGeometryClip(DialClip(c, r)))
         {
             if (!IsLive)
             {
@@ -148,49 +148,21 @@ public sealed class AttitudeIndicator : Control
         }
         if (IsLive)
         {
-            double t = (-Roll - 90) * rad;
-            double tip = r + 2, back = r + 12, half = 6 * rad * 1.2;
-            var geo = new StreamGeometry();
-            using (var g = geo.Open())
-            {
-                g.BeginFigure(new Point(c.X + tip * Math.Cos(t), c.Y + tip * Math.Sin(t)), true);
-                g.LineTo(new Point(c.X + back * Math.Cos(t - half), c.Y + back * Math.Sin(t - half)));
-                g.LineTo(new Point(c.X + back * Math.Cos(t + half), c.Y + back * Math.Sin(t + half)));
-                g.EndFigure(true);
-            }
-            ctx.DrawGeometry(OutputStyle ? OutPointer : Pointer, null, geo);
+            using (ctx.PushTransform(RollTurn(c, -Roll * rad)))
+                ctx.DrawGeometry(OutputStyle ? OutPointer : Pointer, null,
+                    _rollPointer.Get(new DialKey(c.X, c.Y, r), k => RollPointer(k, filled: true)));
         }
 
         if (GhostLive)
         {
-            double t = (-GhostRoll - 90) * rad;
-            double tip = r + 2, back = r + 12, half = 6 * rad * 1.2;
-            var geo = new StreamGeometry();
-            using (var g = geo.Open())
-            {
-                g.BeginFigure(new Point(c.X + tip * Math.Cos(t), c.Y + tip * Math.Sin(t)), false);
-                g.LineTo(new Point(c.X + back * Math.Cos(t - half), c.Y + back * Math.Sin(t - half)));
-                g.LineTo(new Point(c.X + back * Math.Cos(t + half), c.Y + back * Math.Sin(t + half)));
-                g.EndFigure(true);
-            }
-            ctx.DrawGeometry(null, GhostOutline, geo);
+            using (ctx.PushTransform(RollTurn(c, -GhostRoll * rad)))
+                ctx.DrawGeometry(null, GhostOutline,
+                    _ghostPointer.Get(new DialKey(c.X, c.Y, r), k => RollPointer(k, filled: false)));
         }
 
         // fixed vehicle reference symbol
         double s = r * 0.42;
-        var wings = new StreamGeometry();
-        using (var g = wings.Open())
-        {
-            g.BeginFigure(new Point(c.X - s, c.Y), false);
-            g.LineTo(new Point(c.X - s * 0.35, c.Y));
-            g.LineTo(new Point(c.X - s * 0.18, c.Y + s * 0.18));
-            g.LineTo(new Point(c.X, c.Y));
-            g.LineTo(new Point(c.X + s * 0.18, c.Y + s * 0.18));
-            g.LineTo(new Point(c.X + s * 0.35, c.Y));
-            g.LineTo(new Point(c.X + s, c.Y));
-            g.EndFigure(false);
-        }
-        ctx.DrawGeometry(null, Symbol, wings);
+        ctx.DrawGeometry(null, Symbol, _wings.Get(new DialKey(c.X, c.Y, s), Wings));
 
         if (IsLive)
         {
@@ -248,15 +220,7 @@ public sealed class AttitudeIndicator : Control
             ctx.DrawLine(GhostOutline, new Point(gx, tape.Y + 2), new Point(gx, tape.Bottom));
         }
         // fixed pointer at the lubber line
-        var geo = new StreamGeometry();
-        using (var g = geo.Open())
-        {
-            g.BeginFigure(new Point(c.X - 5, tape.Y - 1), true);
-            g.LineTo(new Point(c.X + 5, tape.Y - 1));
-            g.LineTo(new Point(c.X, tape.Y + 6));
-            g.EndFigure(true);
-        }
-        ctx.DrawGeometry(Pointer, null, geo);
+        ctx.DrawGeometry(Pointer, null, _lubber.Get(new DialKey(c.X, tape.Y, 0), Lubber));
     }
 
     /// <summary>The ghost's horizon and pitch ladder, dashed and amber so it
@@ -266,7 +230,7 @@ public sealed class AttitudeIndicator : Control
         var rotate = Matrix.CreateTranslation(-c.X, -c.Y)
                      * Matrix.CreateRotation(-GhostRoll * rad)
                      * Matrix.CreateTranslation(c.X, c.Y);
-        using (ctx.PushGeometryClip(new EllipseGeometry(new Rect(c.X - r, c.Y - r, 2 * r, 2 * r))))
+        using (ctx.PushGeometryClip(DialClip(c, r)))
         using (ctx.PushTransform(rotate))
         {
             double hy = c.Y + GhostPitch * px;
@@ -280,8 +244,73 @@ public sealed class AttitudeIndicator : Control
         }
     }
 
+
+    // The dial's fixed shapes depend on its size alone: built once per size, not per frame.
+    readonly record struct DialKey(double X, double Y, double R);
+    readonly GeometrySlot<DialKey> _rollPointer = new(), _ghostPointer = new(), _wings = new(), _lubber = new();
+    readonly EllipseGeometry _clip = new();
+
+    EllipseGeometry DialClip(Point c, double r)
+    {
+        var rect = new Rect(c.X - r, c.Y - r, 2 * r, 2 * r);
+        if (_clip.Rect != rect) _clip.Rect = rect;
+        return _clip;
+    }
+
+    static Matrix RollTurn(Point c, double radians) =>
+        Matrix.CreateTranslation(-c.X, -c.Y) * Matrix.CreateRotation(radians) * Matrix.CreateTranslation(c.X, c.Y);
+
+    /// <summary>The roll pointer at zero roll (straight up); the draw turns it about the dial centre.</summary>
+    static Geometry RollPointer(DialKey k, bool filled)
+    {
+        double t = -90 * Math.PI / 180;
+        double tip = k.R + 2, back = k.R + 12, half = 6 * Math.PI / 180 * 1.2;
+        var geo = new StreamGeometry();
+        using (var g = geo.Open())
+        {
+            g.BeginFigure(new Point(k.X + tip * Math.Cos(t), k.Y + tip * Math.Sin(t)), filled);
+            g.LineTo(new Point(k.X + back * Math.Cos(t - half), k.Y + back * Math.Sin(t - half)));
+            g.LineTo(new Point(k.X + back * Math.Cos(t + half), k.Y + back * Math.Sin(t + half)));
+            g.EndFigure(true);
+        }
+        return geo;
+    }
+
+    /// <summary>The fixed vehicle reference symbol; <c>k.R</c> is its half-width.</summary>
+    static Geometry Wings(DialKey k)
+    {
+        double s = k.R;
+        var wings = new StreamGeometry();
+        using (var g = wings.Open())
+        {
+            g.BeginFigure(new Point(k.X - s, k.Y), false);
+            g.LineTo(new Point(k.X - s * 0.35, k.Y));
+            g.LineTo(new Point(k.X - s * 0.18, k.Y + s * 0.18));
+            g.LineTo(new Point(k.X, k.Y));
+            g.LineTo(new Point(k.X + s * 0.18, k.Y + s * 0.18));
+            g.LineTo(new Point(k.X + s * 0.35, k.Y));
+            g.LineTo(new Point(k.X + s, k.Y));
+            g.EndFigure(false);
+        }
+        return wings;
+    }
+
+    /// <summary>The fixed pointer at the heading tape's lubber line; <c>k.X</c> is the centre, <c>k.Y</c> the tape top.</summary>
+    static Geometry Lubber(DialKey k)
+    {
+        var geo = new StreamGeometry();
+        using (var g = geo.Open())
+        {
+            g.BeginFigure(new Point(k.X - 5, k.Y - 1), true);
+            g.LineTo(new Point(k.X + 5, k.Y - 1));
+            g.LineTo(new Point(k.X, k.Y + 6));
+            g.EndFigure(true);
+        }
+        return geo;
+    }
+
     static double Normalise(double yaw) => ((Math.Round(yaw) % 360) + 360) % 360;
 
     static FormattedText Text(string s, double size, IBrush brush) =>
-        new(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Mono, size, brush);
+        Ogs.Telemetry.Monitor.TextCache.Get(s, size, Mono, brush);
 }

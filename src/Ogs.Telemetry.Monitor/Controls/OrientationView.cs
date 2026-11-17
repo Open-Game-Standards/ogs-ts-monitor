@@ -37,7 +37,7 @@ public sealed class OrientationView : Control
 
     static readonly IPen GridPen = new Pen(new SolidColorBrush(Color.FromArgb(70, 140, 170, 150)), 1);
     static readonly IBrush Shadow = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0));
-    static readonly IPen Edge = new Pen(new SolidColorBrush(Color.FromArgb(230, 230, 240, 225)), 1.4);
+    static readonly IPen Edge = new Pen(new SolidColorBrush(Color.FromArgb(230, 230, 240, 225)), 1.4, lineCap: PenLineCap.Round);
     static readonly Color Body = Color.Parse("#4c7a2a");
     static readonly IBrush NoseFill = new SolidColorBrush(Color.FromArgb(220, 245, 215, 110));
     static readonly IPen AxisX = new Pen(new SolidColorBrush(Color.Parse("#e06c5a")), 2.5, lineCap: PenLineCap.Round);
@@ -143,7 +143,7 @@ public sealed class OrientationView : Control
                 4 => new SolidColorBrush(Lighten(body, -0.35), 0.9),
                 _ => new SolidColorBrush(body, 0.82),
             };
-            ctx.DrawGeometry(fill, Edge, Polygon(pts));
+            DrawFace(ctx, fill, Edge, pts[0], pts[1], pts[2], pts[3]);
         }
 
         // body axes from the centre
@@ -178,7 +178,7 @@ public sealed class OrientationView : Control
                 (i & 4) == 0 ? -Half.Z : Half.Z);
             pts[i] = project(Vector3.Transform(local, q)).P;
         }
-        ctx.DrawGeometry(GhostNose, null, Polygon(new[] { pts[4], pts[6], pts[7], pts[5] }));
+        DrawFace(ctx, GhostNose, null, pts[4], pts[6], pts[7], pts[5]);
         foreach (var (a, b) in new[]
                  {
                      (0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7),
@@ -200,6 +200,39 @@ public sealed class OrientationView : Control
         }
         var t = Text(label, 10, pen.Brush!);
         ctx.DrawText(t, new Point(to.X + 4, to.Y - t.Height / 2));
+    }
+
+    // A box face is a parallelogram under this orthographic camera, so it is the unit square
+    // moved by an affine map: one shared square, no geometry built per face per frame (each
+    // is a native Skia path the finalizer has to free). The outline is four lines.
+    static Geometry? _unitSquare;
+
+    static Geometry UnitSquare()
+    {
+        if (_unitSquare is not null) return _unitSquare;
+        var g = new StreamGeometry();
+        using (var c = g.Open())
+        {
+            c.BeginFigure(new Point(0, 0), true);
+            c.LineTo(new Point(1, 0));
+            c.LineTo(new Point(1, 1));
+            c.LineTo(new Point(0, 1));
+            c.EndFigure(true);
+        }
+        return _unitSquare = g;
+    }
+
+    /// <summary>A face a-b-c-d (a loop, so c = b + d - a): filled, then outlined if there is an edge pen.</summary>
+    static void DrawFace(DrawingContext ctx, IBrush fill, IPen? edge, Point a, Point b, Point c, Point d)
+    {
+        var m = new Matrix(b.X - a.X, b.Y - a.Y, d.X - a.X, d.Y - a.Y, a.X, a.Y);
+        using (ctx.PushTransform(m))
+            ctx.DrawGeometry(fill, null, UnitSquare());
+        if (edge is null) return;
+        ctx.DrawLine(edge, a, b);
+        ctx.DrawLine(edge, b, c);
+        ctx.DrawLine(edge, c, d);
+        ctx.DrawLine(edge, d, a);
     }
 
     static StreamGeometry Polygon(IList<Point> pts)
@@ -239,5 +272,5 @@ public sealed class OrientationView : Control
     }
 
     static FormattedText Text(string s, double size, IBrush brush) =>
-        new(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Mono, size, brush);
+        Ogs.Telemetry.Monitor.TextCache.Get(s, size, Mono, brush);
 }

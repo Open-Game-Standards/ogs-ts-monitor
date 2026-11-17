@@ -126,5 +126,5 @@ public sealed class StripChart : Control
     }
 
     static FormattedText Text(string s, double size, IBrush brush) =>
-        new(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Mono, size, brush);
+        Ogs.Telemetry.Monitor.TextCache.Get(s, size, Mono, brush);
 }
