@@ -94,11 +94,36 @@ public sealed class MonitorViewModel : Observable
     Quaternion _orientation = Quaternion.Identity;
     public Quaternion Orientation { get => _orientation; private set => Set(ref _orientation, value); }
 
+    // The track and the strip-chart lanes are built from the last 30 s of history: ten arrays of
+    // thousands of samples. Refresh runs thirty times a second whether or not anything shows them,
+    // so it keeps the history it was given and the arrays are made when a view reads them (a view
+    // that is not on screen does not). The track notifies five times a second: the view that draws
+    // it redraws no faster, and a trail does not move in 33 ms.
+    string? _historyKey;
+    static readonly long TrackEvery = System.Diagnostics.Stopwatch.Frequency / 5;
+    long _trackRaisedAt;
+
     IReadOnlyList<Vector3> _track = Array.Empty<Vector3>();
-    public IReadOnlyList<Vector3> Track { get => _track; private set => Set(ref _track, value); }
+    bool _trackStale;
+    public IReadOnlyList<Vector3> Track
+    {
+        get
+        {
+            if (_trackStale) { _trackStale = false; _track = BuildTrack(History()); }
+            return _track;
+        }
+    }
 
     IReadOnlyList<StripLane> _lanes = Array.Empty<StripLane>();
-    public IReadOnlyList<StripLane> Lanes { get => _lanes; private set => Set(ref _lanes, value); }
+    bool _lanesStale;
+    public IReadOnlyList<StripLane> Lanes
+    {
+        get
+        {
+            if (_lanesStale) { _lanesStale = false; _lanes = BuildLanes(History()); }
+            return _lanes;
+        }
+    }
 
     double _now;
     /// <summary>Right edge of the strip chart, on the history's time axis.</summary>
@@ -294,8 +319,15 @@ public sealed class MonitorViewModel : Observable
             YawText = PitchText = RollText = PositionText = RateText = "—";
             DynamicsSource = "no dynamics";
             AngularText = GravityText = "—";
-            Track = Array.Empty<Vector3>();
-            Lanes = Array.Empty<StripLane>();
+            if (_historyKey is not null)
+            {
+                _historyKey = null;
+                _trackStale = _lanesStale = false;
+                _track = Array.Empty<Vector3>();
+                _lanes = Array.Empty<StripLane>();
+                Raise(nameof(Track));
+                Raise(nameof(Lanes));
+            }
             NearVertical = false;
             _viewKey = null;
             if (Channels.Count > 0) Channels.Clear();
@@ -365,22 +397,45 @@ public sealed class MonitorViewModel : Observable
 
     void RefreshMotionViews(ObjectView o)
     {
-        var history = _tracker.History(o.Key);
         Now = _tracker.Now();
         if (o.Pose is { } p)
         {
             Orientation = p.Orientation;
             NearVertical = MathF.Abs(p.Pitch) > 85f;
         }
+        _historyKey = o.Key;
+        _lanesStale = true;
+        Raise(nameof(Lanes));
+        long at = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (at - _trackRaisedAt >= TrackEvery)
+        {
+            _trackRaisedAt = at;
+            _trackStale = true;
+            Raise(nameof(Track));
+        }
+    }
+
+    // the history is fetched when a view reads (it is a locked copy of 30 s of samples)
+    IReadOnlyList<MotionSample>? History() => _historyKey is { } key ? _tracker.History(key) : null;
+
+    static Vector3[] BuildTrack(IReadOnlyList<MotionSample>? history)
+    {
+        if (history is null) return Array.Empty<Vector3>();
+        var track = new Vector3[history.Count];
+        for (int i = 0; i < track.Length; i++) track[i] = history[i].Position;
+        return track;
+    }
+
+    static IReadOnlyList<StripLane> BuildLanes(IReadOnlyList<MotionSample>? history)
+    {
+        if (history is null) return Array.Empty<StripLane>();
         int n = history.Count;
-        var track = new Vector3[n];
         var t = new double[n];
         double[] roll = new double[n], pitch = new double[n], yawRate = new double[n],
                  surge = new double[n], sway = new double[n], heave = new double[n], height = new double[n];
         for (int i = 0; i < n; i++)
         {
             var h = history[i];
-            track[i] = h.Position;
             t[i] = h.At;
             roll[i] = h.Roll;
             pitch[i] = h.Pitch;
@@ -394,9 +449,8 @@ public sealed class MonitorViewModel : Observable
             }
             else surge[i] = sway[i] = heave[i] = double.NaN;
         }
-        Track = track;
         const string Deg1 = "+0.0;-0.0;0.0", G2 = "+0.00;-0.00;0.00";
-        Lanes = new[]
+        return new[]
         {
             new StripLane("roll", "°", t, roll, 2, Last(roll, Deg1, "°")),
             new StripLane("pitch", "°", t, pitch, 2, Last(pitch, Deg1, "°")),
