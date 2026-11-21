@@ -35,6 +35,15 @@ public sealed class OrientationView : Control
     static readonly Color OutBody = Color.Parse("#b3359f");
     public bool OutputStyle { get => GetValue(OutputStyleProperty); set => SetValue(OutputStyleProperty, value); }
 
+    // Where the box sits above the ground grid, in view units (x right, y up, z forward; the box is
+    // 2.0 long): a platform's sway, heave and surge. Zero keeps it centred, as before.
+    public static readonly StyledProperty<Vector3> OffsetProperty =
+        AvaloniaProperty.Register<OrientationView, Vector3>(nameof(Offset));
+    public static readonly StyledProperty<Vector3> GhostOffsetProperty =
+        AvaloniaProperty.Register<OrientationView, Vector3>(nameof(GhostOffset));
+    public Vector3 Offset { get => GetValue(OffsetProperty); set => SetValue(OffsetProperty, value); }
+    public Vector3 GhostOffset { get => GetValue(GhostOffsetProperty); set => SetValue(GhostOffsetProperty, value); }
+
     static readonly IPen GridPen = new Pen(new SolidColorBrush(Color.FromArgb(70, 140, 170, 150)), 1);
     static readonly IBrush Shadow = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0));
     static readonly IPen Edge = new Pen(new SolidColorBrush(Color.FromArgb(230, 230, 240, 225)), 1.4, lineCap: PenLineCap.Round);
@@ -56,7 +65,7 @@ public sealed class OrientationView : Control
 
     static OrientationView()
     {
-        AffectsRender<OrientationView>(OrientationProperty, IsLiveProperty, GhostOrientationProperty, GhostLiveProperty, OutputStyleProperty);
+        AffectsRender<OrientationView>(OrientationProperty, IsLiveProperty, GhostOrientationProperty, GhostLiveProperty, OutputStyleProperty, OffsetProperty, GhostOffsetProperty);
         // the ground grid extends past the box; keep it inside the control
         ClipToBoundsProperty.OverrideDefaultValue<OrientationView>(true);
     }
@@ -106,7 +115,7 @@ public sealed class OrientationView : Control
                 (i & 1) == 0 ? -Half.X : Half.X,
                 (i & 2) == 0 ? -Half.Y : Half.Y,
                 (i & 4) == 0 ? -Half.Z : Half.Z);
-            corners[i] = Vector3.Transform(local, q);
+            corners[i] = Vector3.Transform(local, q) + Offset;
         }
 
         // shadow: corners dropped straight down onto the ground, hulled
@@ -147,12 +156,12 @@ public sealed class OrientationView : Control
         }
 
         // body axes from the centre
-        var o = Project(Vector3.Zero).P;
+        var o = Project(Offset).P;
         // small sizes: short axis labels, and the caption only if it fits
         bool compact = size < 200;
-        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(1.15f, 0, 0), q)).P, AxisX, compact ? "x" : "x right");
-        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0.95f, 0), q)).P, AxisY, compact ? "y" : "y up");
-        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0, 1.65f), q)).P, AxisZ, compact ? "z" : "z fwd");
+        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(1.15f, 0, 0), q) + Offset).P, AxisX, compact ? "x" : "x right");
+        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0.95f, 0), q) + Offset).P, AxisY, compact ? "y" : "y up");
+        DrawAxis(ctx, o, Project(Vector3.Transform(new Vector3(0, 0, 1.65f), q) + Offset).P, AxisZ, compact ? "z" : "z fwd");
 
         if (GhostLive) DrawGhost(ctx, Project);
 
@@ -176,7 +185,7 @@ public sealed class OrientationView : Control
                 (i & 1) == 0 ? -Half.X : Half.X,
                 (i & 2) == 0 ? -Half.Y : Half.Y,
                 (i & 4) == 0 ? -Half.Z : Half.Z);
-            pts[i] = project(Vector3.Transform(local, q)).P;
+            pts[i] = project(Vector3.Transform(local, q) + GhostOffset).P;
         }
         DrawFace(ctx, GhostNose, null, pts[4], pts[6], pts[7], pts[5]);
         foreach (var (a, b) in new[]

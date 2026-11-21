@@ -94,6 +94,14 @@ public sealed class MonitorViewModel : Observable
     Quaternion _orientation = Quaternion.Identity;
     public Quaternion Orientation { get => _orientation; private set => Set(ref _orientation, value); }
 
+    /// <summary>Where the world-view box sits: the object's linear acceleration (zero without dynamics).</summary>
+    Vector3 _boxOffset;
+    public Vector3 BoxOffset { get => _boxOffset; private set => Set(ref _boxOffset, value); }
+
+    string _forceText = "—";
+    /// <summary>Surge, sway and heave as the object feels them, in g.</summary>
+    public string ForceText { get => _forceText; private set => Set(ref _forceText, value); }
+
     // The track and the strip-chart lanes are built from the last 30 s of history: ten arrays of
     // thousands of samples. Refresh runs thirty times a second whether or not anything shows them,
     // so it keeps the history it was given and the arrays are made when a view reads them (a view
@@ -318,7 +326,8 @@ public sealed class MonitorViewModel : Observable
             PoseLive = false;
             YawText = PitchText = RollText = PositionText = RateText = "—";
             DynamicsSource = "no dynamics";
-            AngularText = GravityText = "—";
+            AngularText = GravityText = ForceText = "—";
+            BoxOffset = Vector3.Zero;
             if (_historyKey is not null)
             {
                 _historyKey = null;
@@ -371,6 +380,12 @@ public sealed class MonitorViewModel : Observable
         if (o.Dynamics is { } d)
         {
             DynamicsSource = d.Source == "bodyDynamics" ? "bodyDynamics (as sent)" : "specific force from kinematics";
+            var f = d.SpecificForce;
+            ForceText = string.Create(CultureInfo.InvariantCulture,
+                $"surge {f.Z / StandardGravity:+0.00;-0.00;0.00} · sway {f.X / StandardGravity:+0.00;-0.00;0.00} · heave {f.Y / StandardGravity:+0.00;-0.00;0.00} g");
+            BoxOffset = o.Pose is { } pose
+                ? Ogs.Telemetry.Monitor.BoxOffset.FromSpecificForce(f, pose.Orientation, o.EffectiveGravity)
+                : Vector3.Zero;
             AngularText = d.AngularVelocity is { } w
                 ? string.Create(CultureInfo.InvariantCulture,
                     $"pitch {w.X * 180 / Math.PI:+0.0;-0.0} · yaw {w.Y * 180 / Math.PI:+0.0;-0.0} · roll {w.Z * 180 / Math.PI:+0.0;-0.0} °/s")
@@ -379,7 +394,8 @@ public sealed class MonitorViewModel : Observable
         else
         {
             DynamicsSource = "no dynamics (pose only)";
-            AngularText = "—";
+            AngularText = ForceText = "—";
+            BoxOffset = Vector3.Zero;
         }
 
         string sig = o.Key + "\n" + string.Join(",", o.Channels.Select(c => $"{c.Id}:{c.Name}:{c.Unit}:{c.Min}:{c.Max}"));

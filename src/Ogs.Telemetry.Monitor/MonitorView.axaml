@@ -176,7 +176,7 @@
             <TextBlock Classes="label" Text="ATTITUDE"/>
             <TextBlock Grid.Column="2" Classes="label" Text="TRACK · TOP-DOWN · LAST 30 S"/>
             <Panel Grid.Row="1">
-              <c:OrientationView Orientation="{Binding Orientation}" IsLive="{Binding PoseLive}"
+              <c:OrientationView Orientation="{Binding Orientation}" IsLive="{Binding PoseLive}" Offset="{Binding BoxOffset}"
                                  IsVisible="{Binding UseAxes}"/>
               <c:AttitudeIndicator Pitch="{Binding Pitch}" Roll="{Binding Roll}" Yaw="{Binding Yaw}"
                                    IsLive="{Binding PoseLive}" IsVisible="{Binding UseHorizon}"/>
@@ -203,6 +203,11 @@
               <TextBlock Classes="mono" FontSize="12" Text="{Binding PositionText}" Margin="0,0,14,0"/>
               <TextBlock Classes="label" Text="GRAVITY" Margin="0,0,6,0"/>
               <TextBlock Classes="mono" FontSize="12" Text="{Binding GravityText}"/>
+            </WrapPanel>
+            <WrapPanel>
+              <TextBlock Classes="label" Text="FORCE" Margin="0,0,6,0"/>
+              <TextBlock Classes="mono" FontSize="12" Text="{Binding ForceText}"
+                         ToolTip.Tip="Specific force on the object, body frame: the world-view box moves with it"/>
             </WrapPanel>
             <WrapPanel>
               <TextBlock Classes="label" Text="RATES" Margin="0,0,6,0"/>
