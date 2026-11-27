@@ -50,6 +50,17 @@ public sealed class MonitorViewModel : Observable
     }
     bool _followPrimary = true, _selecting;
 
+    string? _preferredSource;
+    public string? PreferredSource
+    {
+        get => _preferredSource;
+        set
+        {
+            if (!Set(ref _preferredSource, value)) return;
+            _followPrimary = true;
+        }
+    }
+
     // ---- Selected object ---------------------------------------------------
 
     string _game = "Waiting for a sender…";
@@ -242,10 +253,12 @@ public sealed class MonitorViewModel : Observable
         // discovery, and two senders re-announce in turn, so "newest" alone
         // flips between them: stay on the current object while its motion
         // is live, else take the newest session that has live motion.
+        var preferred = s.Sessions.FirstOrDefault(sv => sv.Source == _preferredSource);
         var current = all.FirstOrDefault(x => x.o.Key == _selected?.Key).o;
-        if ((_followPrimary || _selected is null) && current is not { MotionRateHz: > 0 })
+        if ((_followPrimary || _selected is null) && (preferred is not null || current is not { MotionRateHz: > 0 }))
         {
-            var newest = s.Sessions.FirstOrDefault(sv => sv.Objects.Any(o => o.MotionRateHz > 0))
+            var newest = preferred
+                         ?? s.Sessions.FirstOrDefault(sv => sv.Objects.Any(o => o.MotionRateHz > 0))
                          ?? s.Sessions.FirstOrDefault();
             var primary = newest?.Objects.FirstOrDefault(o => o.Primary) ?? newest?.Objects.FirstOrDefault();
             var target = primary is null ? null : Objects.FirstOrDefault(i => i.Key == primary.Key);
